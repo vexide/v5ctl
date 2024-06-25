@@ -22,6 +22,10 @@ pub fn connect_to_socket() -> io::Result<Socket> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum Command {
+pub enum DaemonCommand {
+    Test(String),
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DaemonResponse {
     Test(String),
 }

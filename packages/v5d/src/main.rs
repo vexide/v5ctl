@@ -1,9 +1,10 @@
+use std::io::Write;
 use std::io::{self, Read};
 
 use log::{debug, error, info};
 use socket2::{Domain, SockAddr, Socket, Type};
-use v5d_interface::socket_path;
-use v5d_interface::Command;
+use v5d_interface::{socket_path, DaemonResponse};
+use v5d_interface::DaemonCommand;
 
 /// Creates a UNIX socket to communicate with the V5 Daemon
 pub fn setup_socket() -> io::Result<Socket> {
@@ -44,8 +45,13 @@ async fn main() -> anyhow::Result<()> {
                 let mut content = String::new();
                 stream.read_to_string(&mut content)?;
                 
-                let command: Command = serde_json::from_str(&content)?;
+                let command: DaemonCommand = serde_json::from_str(&content)?;
                 debug!("Received command: {:?}", command);
+
+                // let DaemonCommand::Test(string) = command;
+
+                // let response = DaemonResponse::Test(string);
+                // stream.write_all(serde_json::to_string(&response)?.as_bytes())?;
             }
             Err(e) => {
                 error!("Failed to accept connection: {}", e);
