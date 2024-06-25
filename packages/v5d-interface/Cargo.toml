@@ -7,3 +7,4 @@ edition = "2021"
 log = "0.4.21"
 socket2 = "0.5.7"
 dirs-next = "2.0.0"
+serde = { version = "1.0.203", features = ["derive"] }

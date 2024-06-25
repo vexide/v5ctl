@@ -1,13 +1,13 @@
-use std::io;
+use std::io::{self, Read};
 
 use log::{debug, error, info};
 use socket2::{Domain, SockAddr, Socket, Type};
 use v5d_interface::socket_path;
+use v5d_interface::Command;
 
 /// Creates a UNIX socket to communicate with the V5 Daemon
 pub fn setup_socket() -> io::Result<Socket> {
     let path = socket_path();
-    debug!("Creating UNIX socket at {:?}", path);
 
     let socket = Socket::new(Domain::UNIX, Type::STREAM, None).unwrap();
     socket.bind(&SockAddr::unix(&path)?)?;
@@ -39,9 +39,13 @@ async fn main() -> anyhow::Result<()> {
     let socket = setup_socket()?;
     loop {
         match socket.accept() {
-            Ok((stream, _addr)) => {
+            Ok((mut stream, _addr)) => {
                 info!("Accepted connection from client");
-                // Handle the connection
+                let mut content = String::new();
+                stream.read_to_string(&mut content)?;
+                
+                let command: Command = serde_json::from_str(&content)?;
+                debug!("Received command: {:?}", command);
             }
             Err(e) => {
                 error!("Failed to accept connection: {}", e);

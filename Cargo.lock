@@ -1628,6 +1628,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "719b953e2095829ee67db738b3bfa9fa368c94900df327b3f07fe6e794d2fe1f"
 
 [[package]]
+name = "ryu"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
+
+[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1683,6 +1689,17 @@ dependencies = [
  "result",
  "serde",
  "void",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.118"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d947f6b3163d8857ea16c4fa0dd4840d52f3041039a85decd46867eb1abef2e4"
+dependencies = [
+ "itoa",
+ "ryu",
+ "serde",
 ]
 
 [[package]]
@@ -2031,6 +2048,7 @@ name = "v5cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "serde_json",
  "socket2",
  "v5d-interface",
 ]
@@ -2042,6 +2060,7 @@ dependencies = [
  "anyhow",
  "ctrlc",
  "log",
+ "serde_json",
  "simplelog",
  "socket2",
  "tokio",
@@ -2055,6 +2074,7 @@ version = "0.1.0"
 dependencies = [
  "dirs-next",
  "log",
+ "serde",
  "socket2",
 ]
 

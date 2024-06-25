@@ -1,6 +1,7 @@
 use std::{io, path::PathBuf};
 
 use log::{debug, info};
+use serde::{Deserialize, Serialize};
 use socket2::{Domain, SockAddr, Socket, Type};
 
 pub fn socket_path() -> PathBuf {
@@ -18,4 +19,9 @@ pub fn connect_to_socket() -> io::Result<Socket> {
 
     info!("Connected to UNIX socket at {:?}", path);
     Ok(socket)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Command {
+    Test(String),
 }
