@@ -1,0 +1,9 @@
+[package]
+name = "v5d-interface"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4.21"
+socket2 = "0.5.7"
+dirs-next = "2.0.0"

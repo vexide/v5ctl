@@ -1,0 +1,9 @@
+[package]
+name = "v5cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = "4.5.7"
+socket2 = "0.5.7"
+v5d-interface = { version = "0.1.0", path = "../v5d-interface" }

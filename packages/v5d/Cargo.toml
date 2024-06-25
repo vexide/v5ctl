@@ -1,0 +1,13 @@
+[package]
+name = "v5d"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+env_logger = "0.11.3"
+log = "0.4.21"
+socket2 = "0.5.7"
+tokio = "1.38.0"
+v5d-interface = { version = "0.1.0", path = "../v5d-interface" }
+vex_v5_serial = { git = "https://github.com/vexide/vex-v5-serial", version = "0.0.1" }
