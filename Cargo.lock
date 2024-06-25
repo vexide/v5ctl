@@ -2050,6 +2050,7 @@ dependencies = [
  "clap",
  "serde_json",
  "socket2",
+ "tokio",
  "v5d-interface",
 ]
 
@@ -2062,7 +2063,6 @@ dependencies = [
  "log",
  "serde_json",
  "simplelog",
- "socket2",
  "tokio",
  "v5d-interface",
  "vex_v5_serial",
@@ -2076,6 +2076,7 @@ dependencies = [
  "log",
  "serde",
  "socket2",
+ "tokio",
 ]
 
 [[package]]
