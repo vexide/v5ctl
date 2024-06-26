@@ -24,8 +24,9 @@ pub async fn connect_to_socket() -> io::Result<UnixStream> {
 pub enum DaemonCommand {
     MockTap { x: u16, y: u16 },
     Shutdown,
+    Reconnect,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonResponse {
-    Test(String),
+    BasicAck { successful: bool },
 }

@@ -2,11 +2,17 @@ use std::time::Duration;
 
 use log::{info, warn};
 use tokio::{select, time::sleep};
-use vex_v5_serial::connection::{
-    bluetooth::{self, BluetoothConnection},
-    serial::{self, SerialConnection},
-    Connection, ConnectionError, ConnectionType,
+use vex_v5_serial::{
+    connection::{
+        bluetooth::{self, BluetoothConnection},
+        serial::{self, SerialConnection},
+        Connection, ConnectionError, ConnectionType,
+    },
+    decode::Decode,
+    encode::Encode,
 };
+
+use crate::daemon::DaemonError;
 
 pub enum GenericConnection {
     Bluetooth(BluetoothConnection),
@@ -20,17 +26,14 @@ impl Connection for GenericConnection {
         }
     }
 
-    async fn send_packet(
-        &mut self,
-        packet: impl vex_v5_serial::encode::Encode,
-    ) -> Result<(), ConnectionError> {
+    async fn send_packet(&mut self, packet: impl Encode) -> Result<(), ConnectionError> {
         match self {
             GenericConnection::Bluetooth(c) => c.send_packet(packet).await,
             GenericConnection::Serial(s) => s.send_packet(packet).await,
         }
     }
 
-    async fn receive_packet<P: vex_v5_serial::decode::Decode>(
+    async fn receive_packet<P: Decode>(
         &mut self,
         timeout: std::time::Duration,
     ) -> Result<P, ConnectionError> {
@@ -55,7 +58,7 @@ impl Connection for GenericConnection {
     }
 }
 
-async fn bluetooth_connection() -> anyhow::Result<GenericConnection> {
+async fn bluetooth_connection() -> Result<GenericConnection, DaemonError> {
     // Scan for 10 seconds
     let devices = bluetooth::find_devices(Duration::from_secs(10), None).await?;
     // Open a connection to the first device
@@ -64,7 +67,7 @@ async fn bluetooth_connection() -> anyhow::Result<GenericConnection> {
     Ok(GenericConnection::Bluetooth(connection))
 }
 
-async fn serial_connection() -> anyhow::Result<GenericConnection> {
+async fn serial_connection() -> Result<GenericConnection, DaemonError> {
     loop {
         // Find all connected serial devices
         let mut devices = serial::find_devices()?.into_iter();
@@ -82,11 +85,12 @@ async fn serial_connection() -> anyhow::Result<GenericConnection> {
 
 pub async fn setup_connection(
     connection_type: super::ConnectionType,
-) -> anyhow::Result<GenericConnection> {
+) -> Result<GenericConnection, DaemonError> {
     match connection_type {
         super::ConnectionType::Bluetooth => bluetooth_connection().await,
         super::ConnectionType::Serial => serial_connection().await,
         super::ConnectionType::Auto => {
+            // Race the two connection methods
             select! {
                 con = bluetooth_connection() => con,
                 con = serial_connection() => con,

@@ -9,7 +9,7 @@ use log::info;
 use tokio::net::UnixListener;
 use v5d_interface::socket_path;
 
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum ConnectionType {
     Bluetooth,
     Serial,
@@ -33,12 +33,16 @@ pub fn setup_socket() -> io::Result<UnixListener> {
     Ok(socket)
 }
 
-fn on_shutdown() {
+pub fn shutdown() -> ! {
     info!("Shutting down...");
     // Clean up the socket file
     let _ = std::fs::remove_file(socket_path());
     info!("Shutdown complete!");
     std::process::exit(0);
+}
+
+fn on_shutdown() {
+    shutdown();
 }
 
 #[tokio::main]

@@ -3,9 +3,12 @@ use std::{io, sync::Arc};
 use log::{debug, error, info};
 use thiserror::Error;
 use tokio::{
-    io::AsyncReadExt, net::{UnixListener, UnixStream}, spawn, sync::{Mutex, RwLock}
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{UnixListener, UnixStream},
+    spawn,
+    sync::Mutex,
 };
-use v5d_interface::DaemonCommand;
+use v5d_interface::{DaemonCommand, DaemonResponse};
 use vex_v5_serial::connection::{Connection, ConnectionError};
 
 use crate::{
@@ -14,7 +17,7 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
-enum DaemonError {
+pub enum DaemonError {
     #[error("Connection error: {0}")]
     Connection(#[from] ConnectionError),
     #[error("Communication serialization error: {0}")]
@@ -26,12 +29,14 @@ enum DaemonError {
 pub struct Daemon {
     socket: UnixListener,
     brain_connection: Mutex<GenericConnection>,
+    connection_type: ConnectionType,
 }
 impl Daemon {
-    pub async fn new(connection_type: ConnectionType) -> anyhow::Result<Self> {
+    pub async fn new(connection_type: ConnectionType) -> Result<Self, DaemonError> {
         Ok(Self {
             socket: setup_socket()?,
             brain_connection: Mutex::new(setup_connection(connection_type).await?),
+            connection_type,
         })
     }
 
@@ -54,32 +59,55 @@ impl Daemon {
         }
     }
 
-    async fn perform_command(self: Arc<Self>, command: DaemonCommand) -> Result<(), DaemonError> {
-        match command {
+    async fn perform_command(
+        self: Arc<Self>,
+        command: DaemonCommand,
+    ) -> Result<Option<DaemonResponse>, DaemonError> {
+        let response = match command {
             DaemonCommand::MockTap { x, y } => {
                 self.brain_connection
                     .lock()
                     .await
                     .execute_command(vex_v5_serial::commands::screen::MockTap { x, y })
                     .await?;
+                Some(DaemonResponse::BasicAck { successful: true })
             }
             DaemonCommand::Shutdown => {
                 info!("Received shutdown command");
-                super::on_shutdown();
+                super::shutdown();
             }
-        }
+            DaemonCommand::Reconnect => {
+                let mut connection = self.brain_connection.lock().await;
+                *connection = setup_connection(self.connection_type).await?;
+                Some(DaemonResponse::BasicAck { successful: true })
+            }
+        };
 
-        Ok(())
+        Ok(response)
     }
 
     async fn handle_connection(self: Arc<Self>, mut stream: UnixStream) -> Result<(), DaemonError> {
         info!("Accepted connection from client");
         let mut content = String::new();
         stream.read_to_string(&mut content).await?;
+        info!("Received content: {}", content);
+        stream.read_to_end(&mut Vec::new()).await?;
 
         let command: DaemonCommand = serde_json::from_str(&content)?;
         debug!("Received command: {:?}", command);
-        self.perform_command(command).await?;
+        let response = match self.perform_command(command).await {
+            Ok(response) => response,
+            Err(e) => {
+                error!("Failed to perform command: {}", e);
+                Some(DaemonResponse::BasicAck { successful: false })
+            }
+        };
+        if let Some(response) = response {
+            let content = serde_json::to_string(&response)?;
+            stream.writable().await?;
+            let content_bytes = content.as_bytes();
+            stream.write_all(content_bytes).await?;
+        }
 
         Ok(())
     }

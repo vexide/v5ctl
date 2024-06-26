@@ -1,6 +1,12 @@
+use std::io;
+
 use clap::{Parser, Subcommand};
-use tokio::io::AsyncWriteExt;
-use v5d_interface::DaemonCommand;
+use log::info;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::UnixStream,
+};
+use v5d_interface::{DaemonCommand, DaemonResponse};
 
 #[derive(Parser)]
 struct Args {
@@ -12,6 +18,20 @@ struct Args {
 enum Action {
     MockTap { x: u16, y: u16 },
     StopDaemon,
+    Reconnect,
+}
+
+async fn write_command(stream: &mut UnixStream, cmd: DaemonCommand) -> io::Result<()> {
+    let content = serde_json::to_string(&cmd)?;
+    stream.write_all(content.as_bytes()).await?;
+    stream.shutdown().await?;
+    Ok(())
+}
+async fn get_response(stream: &mut UnixStream) -> io::Result<DaemonResponse> {
+    let mut response = String::new();
+    stream.read_to_string(&mut response).await?;
+    let response: DaemonResponse = serde_json::from_str(&response)?;
+    Ok(response)
 }
 
 #[tokio::main]
@@ -29,12 +49,15 @@ async fn main() -> anyhow::Result<()> {
         .expect("Failed to connect to v5d! Is it running?");
     match args.action {
         Action::MockTap { x, y } => {
-            let content = serde_json::to_string(&DaemonCommand::MockTap { x, y })?;
-            sock.write_all(content.as_bytes()).await?;
+            write_command(&mut sock, DaemonCommand::MockTap { x, y }).await?;
+            let response = get_response(&mut sock).await?;
+            info!("Received response: {:?}", response);
         }
         Action::StopDaemon => {
-            let content = serde_json::to_string(&DaemonCommand::Shutdown)?;
-            sock.write_all(content.as_bytes()).await?;
+            write_command(&mut sock, DaemonCommand::Shutdown).await?;
+        }
+        Action::Reconnect => {
+            write_command(&mut sock, DaemonCommand::Reconnect).await?;
         }
     }
 
