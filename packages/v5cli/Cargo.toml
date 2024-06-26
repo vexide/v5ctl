@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-clap = "4.5.7"
+anyhow = "1.0.86"
+clap = { version = "4.5.7", features = ["derive"] }
+log = "0.4.21"
 serde_json = "1.0.118"
+simplelog = "0.12.2"
 socket2 = "0.5.7"
 tokio = { version = "1.38.0", features = ["net", "macros", "io-util", "rt", "full"] }
 v5d-interface = { version = "0.1.0", path = "../v5d-interface" }

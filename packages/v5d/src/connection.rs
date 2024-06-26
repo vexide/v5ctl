@@ -3,8 +3,9 @@ use std::time::Duration;
 use log::{info, warn};
 use tokio::{select, time::sleep};
 use vex_v5_serial::connection::{
-    bluetooth::{self, BluetoothConnection}, serial::{self, SerialConnection}, Connection, ConnectionError,
-    ConnectionType,
+    bluetooth::{self, BluetoothConnection},
+    serial::{self, SerialConnection},
+    Connection, ConnectionError, ConnectionType,
 };
 
 pub enum GenericConnection {
@@ -73,13 +74,15 @@ async fn serial_connection() -> anyhow::Result<GenericConnection> {
             sleep(Duration::from_millis(100)).await;
             continue;
         };
-        let connection =  SerialConnection::open(connection, Duration::from_secs(2))?;
+        let connection = SerialConnection::open(connection, Duration::from_secs(2))?;
         info!("Connected to the Brain over serial!");
         return Ok(GenericConnection::Serial(connection));
     }
 }
 
-pub async fn setup_connection(connection_type: super::ConnectionType) -> anyhow::Result<GenericConnection> {
+pub async fn setup_connection(
+    connection_type: super::ConnectionType,
+) -> anyhow::Result<GenericConnection> {
     match connection_type {
         super::ConnectionType::Bluetooth => bluetooth_connection().await,
         super::ConnectionType::Serial => serial_connection().await,

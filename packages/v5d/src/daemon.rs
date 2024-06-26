@@ -2,9 +2,12 @@ use std::io;
 
 use log::{debug, error, info};
 use thiserror::Error;
-use tokio::{io::AsyncReadExt, net::{UnixListener, UnixStream}};
+use tokio::{
+    io::AsyncReadExt,
+    net::{UnixListener, UnixStream},
+};
 use v5d_interface::DaemonCommand;
-use vex_v5_serial::connection::ConnectionError;
+use vex_v5_serial::connection::{Connection, ConnectionError};
 
 use crate::{
     connection::{setup_connection, GenericConnection},
@@ -33,7 +36,7 @@ impl Daemon {
         })
     }
 
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         loop {
             match self.socket.accept().await {
                 Ok((stream, _addr)) => {
@@ -48,17 +51,23 @@ impl Daemon {
         }
     }
 
-    async fn perform_command(&self, command: DaemonCommand) -> Result<(), DaemonError> {
+    async fn perform_command(&mut self, command: DaemonCommand) -> Result<(), DaemonError> {
         match command {
-            DaemonCommand::Test(message) => {
-                info!("Received test command with message: {}", message);
+            DaemonCommand::MockTap { x, y } => {
+                self.brain_connection
+                    .execute_command(vex_v5_serial::commands::screen::MockTap { x, y })
+                    .await?;
+            }
+            DaemonCommand::Shutdown => {
+                info!("Received shutdown command");
+                super::on_shutdown();
             }
         }
 
         Ok(())
     }
 
-    async fn handle_connection(&self, mut stream: UnixStream) -> Result<(), DaemonError> {
+    async fn handle_connection(&mut self, mut stream: UnixStream) -> Result<(), DaemonError> {
         info!("Accepted connection from client");
         let mut content = String::new();
         stream.read_to_string(&mut content).await?;

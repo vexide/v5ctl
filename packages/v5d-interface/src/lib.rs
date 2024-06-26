@@ -2,8 +2,7 @@ use std::{io, path::PathBuf};
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use socket2::{Domain, SockAddr, Socket, Type};
-use tokio::{io::{AsyncReadExt, Interest}, net::UnixStream};
+use tokio::net::UnixStream;
 
 pub fn socket_path() -> PathBuf {
     dirs_next::runtime_dir()
@@ -16,7 +15,6 @@ pub async fn connect_to_socket() -> io::Result<UnixStream> {
     debug!("Connecting to UNIX socket at {:?}", path);
 
     let socket = UnixStream::connect(&path).await?;
-    socket.ready(Interest::READABLE | Interest::WRITABLE).await?;
 
     info!("Connected to UNIX socket at {:?}", path);
     Ok(socket)
@@ -24,7 +22,8 @@ pub async fn connect_to_socket() -> io::Result<UnixStream> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonCommand {
-    Test(String),
+    MockTap { x: u16, y: u16 },
+    Shutdown,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonResponse {
