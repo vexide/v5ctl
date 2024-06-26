@@ -1,4 +1,4 @@
-use std::{default, fmt::format, io, path::PathBuf};
+use std::{io, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use log::info;
@@ -9,6 +9,7 @@ use tokio::{
 use v5d_interface::{AfterFileUpload, DaemonCommand, DaemonResponse, ProgramData};
 
 #[derive(Parser)]
+#[command(version, about = "A CLI for interacting with the V5 Daemon (v5d)")]
 struct Args {
     #[clap(subcommand)]
     action: Action,
@@ -73,29 +74,31 @@ enum Action {
     UploadProgram {
         /// The slot to upload to
         slot: u8,
-
-        #[arg(short, long)]
-        /// The file name of the icon to appear on the program
+        /// The name of the program
+        name: String,
+        /// The icon to appear on the program
         icon: ProgramIcon,
+
         #[arg(short, long)]
         /// The description of the program
         description: Option<String>,
         #[arg(short, long)]
-        /// The name of the program
-        name: String,
-        #[arg(short, long)]
         /// The text to appear in the program type box
         program_type: Option<String>,
-        #[arg(long, default_value_t = true)]
+        #[arg(short, long)]
         /// Whether or not the program should be compressed before uploading
-        compression: bool,
-        #[arg(short, long, default_value = "AfterUpload::None")]
+        uncompressed: bool,
+        #[arg(short, long, default_value = "show-screen")]
         /// Action to perform after uploading the program
         after_upload: AfterUpload,
 
-        #[arg(long)]
+        #[arg(short = 's', long, required_unless_present = "cold")]
+        /// Path to the hot bin to upload
+        /// If cold is not provided, you must provide this
         hot: Option<PathBuf>,
-        #[arg(long)]
+        #[arg(short = 'c', long, required_unless_present = "hot")]
+        /// Path to the cold bin to upload
+        /// If hot is not provided, you must provide this
         cold: Option<PathBuf>,
     },
     StopDaemon,
@@ -142,11 +145,11 @@ async fn main() -> anyhow::Result<()> {
             program_type,
             hot,
             cold,
-            compression,
+            uncompressed,
             after_upload,
         } => {
             let data = match (hot, cold) {
-                (None, None) => todo!("I need at least one file to upload!"),
+                (None, None) => unreachable!(),
                 (None, Some(cold)) => ProgramData::encode_cold(std::fs::read(cold)?),
                 (Some(hot), None) => ProgramData::encode_hot(std::fs::read(hot)?),
                 (Some(hot), Some(cold)) => {
@@ -161,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
                 icon: format!("USER{:03}x.bmp", icon as u16),
                 program_type,
                 slot,
-                compression,
+                compression: !uncompressed,
                 after_upload: after_upload.into(),
                 data,
             };
