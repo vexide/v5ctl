@@ -9,3 +9,5 @@ socket2 = "0.5.7"
 dirs-next = "2.0.0"
 serde = { version = "1.0.203", features = ["derive"] }
 tokio = { version = "1.38.0", features = ["net"] }
+base64 = "0.22.1"
+vex_v5_serial = { git = "https://github.com/vexide/vex-v5-serial", version = "0.0.1" }

@@ -8,7 +8,7 @@ use tokio::{
     spawn,
     sync::Mutex,
 };
-use v5d_interface::{DaemonCommand, DaemonResponse};
+use v5d_interface::{DaemonCommand, DaemonResponse, ProgramData};
 use vex_v5_serial::connection::{Connection, ConnectionError};
 
 use crate::{
@@ -71,6 +71,30 @@ impl Daemon {
                     .execute_command(vex_v5_serial::commands::screen::MockTap { x, y })
                     .await?;
                 Some(DaemonResponse::BasicAck { successful: true })
+            }
+            DaemonCommand::UploadProgram {
+                name,
+                description,
+                icon,
+                slot,
+                compression,
+                after_upload,
+                data,
+                program_type,
+            } => {
+                let command = vex_v5_serial::commands::file::UploadProgram {
+                    name,
+                    program_type,
+                    description,
+                    icon,
+                    slot,
+                    compress_program: compression,
+                    after_upload: after_upload.into(),
+                    data: data.into(),
+                };
+                self.brain_connection.lock().await.execute_command(command).await?;
+
+                None
             }
             DaemonCommand::Shutdown => {
                 info!("Received shutdown command");

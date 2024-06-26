@@ -1,8 +1,10 @@
 use std::{io, path::PathBuf};
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::net::UnixStream;
+use vex_v5_serial::packets::file::FileExitAtion;
 
 pub fn socket_path() -> PathBuf {
     dirs_next::runtime_dir()
@@ -21,8 +23,81 @@ pub async fn connect_to_socket() -> io::Result<UnixStream> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum AfterFileUpload {
+    DoNothing,
+    RunProgram,
+    ShowRunScreen,
+    Halt,
+}
+impl From<AfterFileUpload> for FileExitAtion {
+    fn from(value: AfterFileUpload) -> Self {
+        match value {
+            AfterFileUpload::DoNothing => FileExitAtion::DoNothing,
+            AfterFileUpload::RunProgram => FileExitAtion::RunProgram,
+            AfterFileUpload::ShowRunScreen => FileExitAtion::ShowRunScreen,
+            AfterFileUpload::Halt => FileExitAtion::Halt,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ProgramData {
+    Hot(String),
+    Cold(String),
+    Both { hot: String, cold: String },
+}
+impl ProgramData {
+    pub fn decode_both(&self) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
+        match self {
+            ProgramData::Hot(hot) => (Some(hot.as_bytes().to_vec()), None),
+            ProgramData::Cold(cold) => (None, Some(cold.as_bytes().to_vec())),
+            ProgramData::Both { hot, cold } => (
+                Some(hot.as_bytes().to_vec()),
+                Some(cold.as_bytes().to_vec()),
+            ),
+        }
+    }
+    pub fn encode_hot(hot: Vec<u8>) -> Self {
+        ProgramData::Hot(STANDARD.encode(hot))
+    }
+    pub fn encode_cold(cold: Vec<u8>) -> Self {
+        ProgramData::Cold(STANDARD.encode(cold))
+    }
+    pub fn encode_both(hot: Vec<u8>, cold: Vec<u8>) -> Self {
+        ProgramData::Both {
+            hot: STANDARD.encode(hot),
+            cold: STANDARD.encode(cold),
+        }
+    }
+}
+impl From<ProgramData> for vex_v5_serial::commands::file::ProgramData {
+    fn from(value: ProgramData) -> Self {
+        match value.decode_both() {
+            (Some(hot), None) => vex_v5_serial::commands::file::ProgramData::Hot(hot),
+            (None, Some(cold)) => vex_v5_serial::commands::file::ProgramData::Cold(cold),
+            (Some(hot), Some(cold)) => vex_v5_serial::commands::file::ProgramData::Both { hot, cold },
+            (None, None) => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonCommand {
-    MockTap { x: u16, y: u16 },
+    MockTap {
+        x: u16,
+        y: u16,
+    },
+    UploadProgram {
+        name: String,
+        description: String,
+        icon: String,
+        program_type: String,
+        // 1-indexed slot
+        slot: u8,
+        compression: bool,
+        after_upload: AfterFileUpload,
+        data: ProgramData,
+    },
     Shutdown,
     Reconnect,
 }
