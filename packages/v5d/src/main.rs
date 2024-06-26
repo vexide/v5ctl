@@ -1,11 +1,26 @@
-use std::io::Write;
-use std::io::{self, Read};
+mod connection;
+mod daemon;
 
-use log::{debug, error, info};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::io;
+
+use clap::Parser;
+use daemon::Daemon;
+use log::info;
 use tokio::net::UnixListener;
-use v5d_interface::{socket_path, DaemonResponse};
-use v5d_interface::DaemonCommand;
+use v5d_interface::socket_path;
+
+#[derive(Debug, Clone, clap::ValueEnum)]
+enum ConnectionType {
+    Bluetooth,
+    Serial,
+    Auto,
+}
+
+#[derive(clap::Parser, Debug)]
+struct Args {
+    #[arg(long, short)]
+    connection_type: ConnectionType,
+}
 
 /// Creates a UNIX socket to communicate with the V5 Daemon
 pub fn setup_socket() -> io::Result<UnixListener> {
@@ -28,35 +43,18 @@ fn on_shutdown() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
     simplelog::TermLogger::init(
-        log::LevelFilter::Trace,
+        log::LevelFilter::Debug,
         Default::default(),
         simplelog::TerminalMode::Mixed,
         simplelog::ColorChoice::Auto,
     )?;
     ctrlc::set_handler(on_shutdown)?;
 
-    let socket = setup_socket()?;
-    loop {
-        match socket.accept().await {
-            Ok((mut stream, _addr)) => {
-                stream.readable().await?;
-                info!("Accepted connection from client");
-                let mut content = String::new();
-                stream.read_to_string(&mut content).await?;
-                
-                let command: DaemonCommand = serde_json::from_str(&content)?;
-                debug!("Received command: {:?}", command);
-                
-                stream.writable().await?;
-                let DaemonCommand::Test(string) = command;
+    let daemon = Daemon::new(args.connection_type).await?;
+    daemon.run().await;
 
-                let response = DaemonResponse::Test(string);
-                stream.write_all(serde_json::to_string(&response)?.as_bytes()).await?;
-            }
-            Err(e) => {
-                error!("Failed to accept connection: {}", e);
-            }
-        }
-    }
+    Ok(())
 }
