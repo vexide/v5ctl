@@ -11,6 +11,7 @@ struct Args {
 #[derive(Subcommand)]
 enum Action {
     MockTap { x: u16, y: u16 },
+    StopDaemon,
 }
 
 #[tokio::main]
@@ -29,6 +30,10 @@ async fn main() -> anyhow::Result<()> {
     match args.action {
         Action::MockTap { x, y } => {
             let content = serde_json::to_string(&DaemonCommand::MockTap { x, y })?;
+            sock.write_all(content.as_bytes()).await?;
+        }
+        Action::StopDaemon => {
+            let content = serde_json::to_string(&DaemonCommand::Shutdown)?;
             sock.write_all(content.as_bytes()).await?;
         }
     }
