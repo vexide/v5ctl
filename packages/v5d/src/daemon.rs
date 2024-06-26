@@ -1,10 +1,9 @@
-use std::io;
+use std::{io, sync::Arc};
 
 use log::{debug, error, info};
 use thiserror::Error;
 use tokio::{
-    io::AsyncReadExt,
-    net::{UnixListener, UnixStream},
+    io::AsyncReadExt, net::{UnixListener, UnixStream}, spawn, sync::{Mutex, RwLock}
 };
 use v5d_interface::DaemonCommand;
 use vex_v5_serial::connection::{Connection, ConnectionError};
@@ -26,23 +25,27 @@ enum DaemonError {
 
 pub struct Daemon {
     socket: UnixListener,
-    brain_connection: GenericConnection,
+    brain_connection: Mutex<GenericConnection>,
 }
 impl Daemon {
     pub async fn new(connection_type: ConnectionType) -> anyhow::Result<Self> {
         Ok(Self {
             socket: setup_socket()?,
-            brain_connection: setup_connection(connection_type).await?,
+            brain_connection: Mutex::new(setup_connection(connection_type).await?),
         })
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(self) {
+        let this = Arc::new(self);
         loop {
-            match self.socket.accept().await {
+            match this.socket.accept().await {
                 Ok((stream, _addr)) => {
-                    if let Err(e) = self.handle_connection(stream).await {
-                        error!("Failed to handle connection: {}", e);
-                    }
+                    let this = this.clone();
+                    spawn(async move {
+                        if let Err(e) = this.handle_connection(stream).await {
+                            error!("Failed to handle connection: {}", e);
+                        }
+                    });
                 }
                 Err(e) => {
                     error!("Failed to accept connection: {}", e);
@@ -51,10 +54,12 @@ impl Daemon {
         }
     }
 
-    async fn perform_command(&mut self, command: DaemonCommand) -> Result<(), DaemonError> {
+    async fn perform_command(self: Arc<Self>, command: DaemonCommand) -> Result<(), DaemonError> {
         match command {
             DaemonCommand::MockTap { x, y } => {
                 self.brain_connection
+                    .lock()
+                    .await
                     .execute_command(vex_v5_serial::commands::screen::MockTap { x, y })
                     .await?;
             }
@@ -67,7 +72,7 @@ impl Daemon {
         Ok(())
     }
 
-    async fn handle_connection(&mut self, mut stream: UnixStream) -> Result<(), DaemonError> {
+    async fn handle_connection(self: Arc<Self>, mut stream: UnixStream) -> Result<(), DaemonError> {
         info!("Accepted connection from client");
         let mut content = String::new();
         stream.read_to_string(&mut content).await?;
