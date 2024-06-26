@@ -49,11 +49,13 @@ pub enum ProgramData {
 impl ProgramData {
     pub fn decode_both(&self) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
         match self {
-            ProgramData::Hot(hot) => (Some(hot.as_bytes().to_vec()), None),
-            ProgramData::Cold(cold) => (None, Some(cold.as_bytes().to_vec())),
+            ProgramData::Hot(hot) => (Some(STANDARD.decode(hot.as_bytes()).unwrap()), None),
+            ProgramData::Cold(cold) => {
+                (None, Some(STANDARD.decode(cold.as_bytes()).unwrap()))
+            },
             ProgramData::Both { hot, cold } => (
-                Some(hot.as_bytes().to_vec()),
-                Some(cold.as_bytes().to_vec()),
+                Some(STANDARD.decode(hot.as_bytes()).unwrap()),
+                Some(STANDARD.decode(cold.as_bytes()).unwrap()),
             ),
         }
     }
