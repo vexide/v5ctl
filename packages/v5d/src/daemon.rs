@@ -91,8 +91,15 @@ impl Daemon {
                     compress_program: compression,
                     after_upload: after_upload.into(),
                     data: data.into(),
+                    ini_callback: None,
+                    cold_callback: None,
+                    hot_callback: None,
                 };
-                self.brain_connection.lock().await.execute_command(command).await?;
+                self.brain_connection
+                    .lock()
+                    .await
+                    .execute_command(command)
+                    .await?;
 
                 None
             }
