@@ -87,7 +87,7 @@ impl Daemon {
                     program_type,
                     description,
                     icon,
-                    slot,
+                    slot: slot - 1,
                     compress_program: compression,
                     after_upload: after_upload.into(),
                     data: data.into(),
