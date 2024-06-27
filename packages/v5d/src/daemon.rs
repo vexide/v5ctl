@@ -6,9 +6,9 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{UnixListener, UnixStream},
     spawn,
-    sync::Mutex,
+    sync::{mpsc::Sender, Mutex},
 };
-use v5d_interface::{DaemonCommand, DaemonResponse, ProgramData};
+use v5d_interface::{DaemonCommand, DaemonResponse};
 use vex_v5_serial::connection::{Connection, ConnectionError};
 
 use crate::{
@@ -62,6 +62,7 @@ impl Daemon {
     async fn perform_command(
         self: Arc<Self>,
         command: DaemonCommand,
+        stream: Arc<Mutex<UnixStream>>,
     ) -> Result<Option<DaemonResponse>, DaemonError> {
         let response = match command {
             DaemonCommand::MockTap { x, y } => {
@@ -82,6 +83,36 @@ impl Daemon {
                 data,
                 program_type,
             } => {
+                let (response_sender, mut response_receiver) =
+                    tokio::sync::mpsc::channel::<DaemonResponse>(1000);
+                let response_sender = Arc::new(Mutex::new(response_sender));
+
+                spawn(async move {
+                    let mut stream = stream.lock().await;
+                    while let Some(response) = response_receiver.recv().await {
+                        let mut content = serde_json::to_string(&response).unwrap();
+                        content.push('\n');
+                        let content_bytes = content.as_bytes();
+                        stream.write_all(content_bytes).await.unwrap();
+                        stream.flush().await.unwrap();
+                    }
+                });
+
+                fn generate_callback(
+                    step: String,
+                    sender: Arc<Mutex<Sender<DaemonResponse>>>,
+                ) -> Box<dyn FnMut(f32) + Send> {
+                    Box::new(move |percent| {
+                        let step = step.clone();
+                        let sender = sender.clone();
+                        tokio::task::block_in_place(move || {
+                            let response = DaemonResponse::TransferProgress { percent, step };
+                            let sender = sender.blocking_lock();
+                            sender.blocking_send(response).unwrap();
+                        });
+                    })
+                }
+
                 let command = vex_v5_serial::commands::file::UploadProgram {
                     name,
                     program_type,
@@ -91,17 +122,32 @@ impl Daemon {
                     compress_program: compression,
                     after_upload: after_upload.into(),
                     data: data.into(),
-                    ini_callback: None,
-                    cold_callback: None,
-                    hot_callback: None,
+                    ini_callback: Some(generate_callback(
+                        "Uploading INI".to_string(),
+                        response_sender.clone(),
+                    )),
+                    cold_callback: Some(generate_callback(
+                        "Uploading cold".to_string(),
+                        response_sender.clone(),
+                    )),
+                    hot_callback: Some(generate_callback(
+                        "Uploading hot".to_string(),
+                        response_sender.clone(),
+                    )),
                 };
-                self.brain_connection
-                    .lock()
-                    .await
-                    .execute_command(command)
-                    .await?;
 
-                None
+                Some(DaemonResponse::TransferComplete(
+                    match self
+                        .brain_connection
+                        .lock()
+                        .await
+                        .execute_command(command)
+                        .await
+                    {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(format!("Failed to upload program: {}", err)),
+                    },
+                ))
             }
             DaemonCommand::Shutdown => {
                 info!("Received shutdown command");
@@ -121,12 +167,11 @@ impl Daemon {
         info!("Accepted connection from client");
         let mut content = String::new();
         stream.read_to_string(&mut content).await?;
-        info!("Received content: {}", content);
-        stream.read_to_end(&mut Vec::new()).await?;
 
+        let stream = Arc::new(Mutex::new(stream));
         let command: DaemonCommand = serde_json::from_str(&content)?;
         debug!("Received command: {:?}", command);
-        let response = match self.perform_command(command).await {
+        let response = match self.perform_command(command, stream.clone()).await {
             Ok(response) => response,
             Err(e) => {
                 error!("Failed to perform command: {}", e);
@@ -134,10 +179,10 @@ impl Daemon {
             }
         };
         if let Some(response) = response {
-            let content = serde_json::to_string(&response)?;
-            stream.writable().await?;
+            let mut content = serde_json::to_string(&response)?;
+            content.push('\n');
             let content_bytes = content.as_bytes();
-            stream.write_all(content_bytes).await?;
+            stream.lock().await.write_all(content_bytes).await?;
         }
 
         Ok(())

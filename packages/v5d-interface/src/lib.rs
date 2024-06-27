@@ -4,7 +4,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::net::UnixStream;
-use vex_v5_serial::packets::file::FileExitAtion;
+use vex_v5_serial::packets::file::FileExitAction;
 
 pub fn socket_path() -> PathBuf {
     dirs_next::runtime_dir()
@@ -29,13 +29,13 @@ pub enum AfterFileUpload {
     ShowRunScreen,
     Halt,
 }
-impl From<AfterFileUpload> for FileExitAtion {
+impl From<AfterFileUpload> for FileExitAction {
     fn from(value: AfterFileUpload) -> Self {
         match value {
-            AfterFileUpload::DoNothing => FileExitAtion::DoNothing,
-            AfterFileUpload::RunProgram => FileExitAtion::RunProgram,
-            AfterFileUpload::ShowRunScreen => FileExitAtion::ShowRunScreen,
-            AfterFileUpload::Halt => FileExitAtion::Halt,
+            AfterFileUpload::DoNothing => FileExitAction::DoNothing,
+            AfterFileUpload::RunProgram => FileExitAction::RunProgram,
+            AfterFileUpload::ShowRunScreen => FileExitAction::ShowRunScreen,
+            AfterFileUpload::Halt => FileExitAction::Halt,
         }
     }
 }
@@ -50,9 +50,7 @@ impl ProgramData {
     pub fn decode_both(&self) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
         match self {
             ProgramData::Hot(hot) => (Some(STANDARD.decode(hot.as_bytes()).unwrap()), None),
-            ProgramData::Cold(cold) => {
-                (None, Some(STANDARD.decode(cold.as_bytes()).unwrap()))
-            },
+            ProgramData::Cold(cold) => (None, Some(STANDARD.decode(cold.as_bytes()).unwrap())),
             ProgramData::Both { hot, cold } => (
                 Some(STANDARD.decode(hot.as_bytes()).unwrap()),
                 Some(STANDARD.decode(cold.as_bytes()).unwrap()),
@@ -77,7 +75,9 @@ impl From<ProgramData> for vex_v5_serial::commands::file::ProgramData {
         match value.decode_both() {
             (Some(hot), None) => vex_v5_serial::commands::file::ProgramData::Hot(hot),
             (None, Some(cold)) => vex_v5_serial::commands::file::ProgramData::Cold(cold),
-            (Some(hot), Some(cold)) => vex_v5_serial::commands::file::ProgramData::Both { hot, cold },
+            (Some(hot), Some(cold)) => {
+                vex_v5_serial::commands::file::ProgramData::Both { hot, cold }
+            }
             (None, None) => unreachable!(),
         }
     }
@@ -106,4 +106,6 @@ pub enum DaemonCommand {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonResponse {
     BasicAck { successful: bool },
+    TransferProgress { percent: f32, step: String },
+    TransferComplete(Result<(), String>),
 }

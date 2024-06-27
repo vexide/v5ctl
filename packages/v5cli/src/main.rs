@@ -1,7 +1,8 @@
 use std::{io, path::PathBuf};
 
 use clap::{Parser, Subcommand, ValueEnum};
-use log::info;
+use itertools::Itertools;
+use log::{error, info};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -111,11 +112,11 @@ async fn write_command(stream: &mut UnixStream, cmd: DaemonCommand) -> io::Resul
     stream.shutdown().await?;
     Ok(())
 }
-async fn get_response(stream: &mut UnixStream) -> io::Result<DaemonResponse> {
+async fn get_response(stream: &mut UnixStream) -> io::Result<Vec<DaemonResponse>> {
     let mut response = String::new();
     stream.read_to_string(&mut response).await?;
-    let response: DaemonResponse = serde_json::from_str(&response)?;
-    Ok(response)
+    let responses = response.lines().map(serde_json::from_str).try_collect()?;
+    Ok(responses)
 }
 
 #[tokio::main]
@@ -169,6 +170,26 @@ async fn main() -> anyhow::Result<()> {
                 data,
             };
             write_command(&mut sock, command).await?;
+
+            'outer: loop {
+                let responses = get_response(&mut sock).await?;
+                for response in responses {
+                    match response {
+                        DaemonResponse::TransferProgress { percent, step } => {
+                            info!("{}: {:.2}%", step, percent)
+                        }
+                        DaemonResponse::TransferComplete(res) => {
+                            if let Err(err) = res {
+                                error!("Failed to upload program: {}", err);
+                            } else {
+                                info!("Successfully uploaded program!");
+                            }
+                            break 'outer;
+                        }
+                        _ => panic!("Unexpected response from daemon"),
+                    }
+                }
+            }
         }
         Action::StopDaemon => {
             write_command(&mut sock, DaemonCommand::Shutdown).await?;
