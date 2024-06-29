@@ -103,7 +103,6 @@ impl Daemon {
                     sender: Arc<Mutex<Sender<DaemonResponse>>>,
                 ) -> Box<dyn FnMut(f32) + Send> {
                     Box::new(move |percent| {
-                        let step = step.clone();
                         let sender = sender.clone();
                         tokio::task::block_in_place(move || {
                             let response = DaemonResponse::TransferProgress { percent, step };

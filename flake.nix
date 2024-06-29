@@ -4,10 +4,11 @@
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
     systems.url = "github:nix-systems/default-linux";
+    naersk.url = "github:nix-community/naersk";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { nixpkgs, systems, rust-overlay, ... }:
+  outputs = { nixpkgs, systems, rust-overlay, naersk, ... }:
     let eachSystem = nixpkgs.lib.genAttrs (import systems);
     in {
       devShells = eachSystem (system:
@@ -27,6 +28,38 @@
               udev
             ];
           };
+        });
+      packages = eachSystem (system:
+        let
+          pkgs = import nixpkgs {
+            overlays = [ (import rust-overlay) ];
+            inherit system;
+          };
+          naersk' = pkgs.callPackage naersk {
+            rustc = pkgs.rust-bin.nightly.latest.default;
+            cargo = pkgs.rust-bin.nightly.latest.default;
+          };
+        in (import ./nix {
+          inherit pkgs;
+          naersk = naersk';
+        }).packages);
+      homeManagerModules = eachSystem (system:
+        let
+          pkgs = import nixpkgs {
+            overlays = [ (import rust-overlay) ];
+            inherit system;
+          };
+          naersk' = pkgs.callPackage naersk {
+            rustc = pkgs.rust-bin.nightly.latest.default;
+            cargo = pkgs.rust-bin.nightly.latest.default;
+          };
+          module = (import ./nix {
+            inherit pkgs;
+            naersk = naersk';
+          }).hm-module;
+        in rec {
+          v5d = module;
+          default = v5d;
         });
     };
 }
