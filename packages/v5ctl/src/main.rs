@@ -169,16 +169,20 @@ async fn main() -> anyhow::Result<()> {
 
             let ini_progress = multi_progress.add(ProgressBar::new(10000));
             ini_progress.set_style(
-                ProgressStyle::with_template("{msg:4} {percent_precise:>7}% {bar:40.cyan} {prefix}")
+                ProgressStyle::with_template(
+                    "{msg:4} {percent_precise:>7}% {bar:40.cyan} {prefix}",
+                )
                 .unwrap()
-                    .progress_chars("█▇▆▅▄▃▂▁ "),
+                .progress_chars("█▇▆▅▄▃▂▁ "),
             );
             ini_progress.set_message("INI");
 
             let cold_progress = if cold.is_some() {
                 let bar = multi_progress.add(ProgressBar::new(10000));
                 bar.set_style(
-                    ProgressStyle::with_template("{msg:4} {percent_precise:>7}% {bar:40.blue} {prefix}")
+                    ProgressStyle::with_template(
+                        "{msg:4} {percent_precise:>7}% {bar:40.blue} {prefix}",
+                    )
                     .unwrap()
                     .progress_chars("█▇▆▅▄▃▂▁ "),
                 );
@@ -188,20 +192,18 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 None
             };
-            
+
             let hot_progress = if hot.is_some() {
                 let bar = multi_progress.add(ProgressBar::new(10000));
                 bar.set_style(
-                    ProgressStyle::with_template("{msg:4} {percent_precise:>7}% {bar:40.red} {prefix}")
-                        .unwrap()
-                        .progress_chars("█▇▆▅▄▃▂▁ "),
+                    ProgressStyle::with_template(
+                        "{msg:4} {percent_precise:>7}% {bar:40.red} {prefix}",
+                    )
+                    .unwrap()
+                    .progress_chars("█▇▆▅▄▃▂▁ "),
                 );
 
-                bar.set_message(if cold.is_none() {
-                    "BIN"
-                } else {
-                    "HOT"
-                });
+                bar.set_message(if cold.is_none() { "BIN" } else { "HOT" });
 
                 Some(bar)
             } else {
@@ -242,56 +244,49 @@ async fn main() -> anyhow::Result<()> {
             let mut start = Instant::now();
 
             'outer: loop {
-                let responses = get_response(&mut sock).await?;
-                
-                for response in responses {
-                    match response {
-                        DaemonResponse::TransferProgress { percent, step } => {
-                            let delta = ((percent - prev_percent) * 100.0) as u64;
-                            
-                            if prev_step != step {
-                                start = Instant::now();
+                let response = get_response(&mut sock).await?;
+
+                match response {
+                    DaemonResponse::TransferProgress { percent, step } => {
+                        let delta = ((percent - prev_percent) * 100.0) as u64;
+
+                        if prev_step != step {
+                            start = Instant::now();
+                        }
+
+                        let elapsed = start.elapsed();
+                        let elapsed_format = format!("{:.2?}", elapsed);
+
+                        match step {
+                            UploadStep::Ini => {
+                                ini_progress.inc(delta);
+                                ini_progress.set_prefix(elapsed_format);
                             }
-
-                            let elapsed = start.elapsed();
-                            let elapsed_format = format!("{:.2?}", elapsed);
-
-                            match step {
-                                UploadStep::Ini => {
-                                    ini_progress.inc(delta);
-                                    ini_progress.set_prefix(elapsed_format);
-                                },
-                                UploadStep::Cold => if let Some(ref cold_progress) = cold_progress {
+                            UploadStep::Cold => {
+                                if let Some(ref cold_progress) = cold_progress {
                                     cold_progress.inc(delta);
                                     cold_progress.set_prefix(elapsed_format);
-                                },
-                                UploadStep::Hot => if let Some(ref hot_progress) = hot_progress {
+                                }
+                            }
+                            UploadStep::Hot => {
+                                if let Some(ref hot_progress) = hot_progress {
                                     hot_progress.inc(delta);
                                     hot_progress.set_prefix(elapsed_format);
-                                },
+                                }
                             }
-
-                            prev_step = step;
-                            prev_percent = percent;
-                        },
-                        DaemonResponse::TransferComplete(res) => {
-                            ini_progress.finish();
-                            if let Some(ref cold_progress) = cold_progress {
-                                cold_progress.finish();
-                            }
-                            if let Some(ref hot_progress) = hot_progress {
-                                hot_progress.finish();
-                            }
-                            if let Err(err) = res {
-                                error!("Failed to upload program: {}", err);
-                            } else {
-                                info!("Successfully uploaded program!");
-                            }
-                            break 'outer;
                         }
-                        _ => panic!("Unexpected response from daemon"),
+
+                        prev_step = step;
+                        prev_percent = percent;
                     }
                     DaemonResponse::TransferComplete(res) => {
+                        ini_progress.finish();
+                        if let Some(ref cold_progress) = cold_progress {
+                            cold_progress.finish();
+                        }
+                        if let Some(ref hot_progress) = hot_progress {
+                            hot_progress.finish();
+                        }
                         if let Err(err) = res {
                             error!("Failed to upload program: {}", err);
                         } else {
