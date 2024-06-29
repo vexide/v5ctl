@@ -8,7 +8,7 @@ use tokio::{
     spawn,
     sync::{mpsc::Sender, Mutex},
 };
-use v5d_interface::{DaemonCommand, DaemonResponse};
+use v5d_interface::{DaemonCommand, DaemonResponse, UploadStep};
 use vex_v5_serial::connection::{Connection, ConnectionError};
 
 use crate::{
@@ -99,7 +99,7 @@ impl Daemon {
                 });
 
                 fn generate_callback(
-                    step: String,
+                    step: UploadStep,
                     sender: Arc<Mutex<Sender<DaemonResponse>>>,
                 ) -> Box<dyn FnMut(f32) + Send> {
                     Box::new(move |percent| {
@@ -123,15 +123,15 @@ impl Daemon {
                     after_upload: after_upload.into(),
                     data: data.into(),
                     ini_callback: Some(generate_callback(
-                        "Uploading INI".to_string(),
+                        UploadStep::Ini,
                         response_sender.clone(),
                     )),
                     cold_callback: Some(generate_callback(
-                        "Uploading cold".to_string(),
+                        UploadStep::Cold,
                         response_sender.clone(),
                     )),
                     hot_callback: Some(generate_callback(
-                        "Uploading hot".to_string(),
+                        UploadStep::Hot,
                         response_sender.clone(),
                     )),
                 };

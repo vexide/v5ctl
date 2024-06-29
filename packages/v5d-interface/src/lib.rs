@@ -83,6 +83,13 @@ impl From<ProgramData> for vex_v5_serial::commands::file::ProgramData {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+pub enum UploadStep {
+    Ini,
+    Cold,
+    Hot,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonCommand {
     MockTap {
@@ -103,9 +110,10 @@ pub enum DaemonCommand {
     Shutdown,
     Reconnect,
 }
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DaemonResponse {
     BasicAck { successful: bool },
-    TransferProgress { percent: f32, step: String },
+    TransferProgress { percent: f32, step: UploadStep },
     TransferComplete(Result<(), String>),
 }

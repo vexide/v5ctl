@@ -3,3 +3,6 @@
 
 # Direnv
 /.direnv
+
+# Test program
+basic.bin
