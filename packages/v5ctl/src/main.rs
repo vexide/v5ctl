@@ -74,12 +74,12 @@ enum Action {
         y: u16,
     },
     /// Uploads a user program to the brain
-    #[command(name = "upload")]
+    #[command(name = "upload", visible_alias = "u")]
     UploadProgram {
         /// Path to the hot bin to upload
         ///
         /// If cold is not provided, you must provide this
-        #[arg(required_unless_present = "cold")]
+        #[arg(short = 'o', long, required_unless_present = "cold")]
         hot: Option<PathBuf>,
 
         /// Path to the cold bin to upload
@@ -89,11 +89,11 @@ enum Action {
         cold: Option<PathBuf>,
 
         /// The slot to upload to
-        #[arg(long)]
+        #[arg(long, short)]
         slot: u8,
 
         /// The name of the program
-        #[arg(long, long)]
+        #[arg(short, long)]
         name: Option<String>,
 
         /// The description of the program
