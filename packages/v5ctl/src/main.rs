@@ -3,6 +3,7 @@ use std::{io, path::PathBuf, time::Instant};
 use clap::{Parser, Subcommand, ValueEnum};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{error, info};
+use rustyline::DefaultEditor;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
@@ -116,6 +117,7 @@ enum Action {
         #[arg(short, long, default_value = "show-screen")]
         after_upload: AfterUpload,
     },
+    Pair,
     StopDaemon,
     Reconnect,
 }
@@ -303,6 +305,52 @@ async fn main() -> anyhow::Result<()> {
         }
         Action::Reconnect => {
             write_command(&mut sock, DaemonCommand::Reconnect).await?;
+        }
+        Action::Pair => {
+            write_command(&mut sock, DaemonCommand::RequestPair).await?;
+            let response = get_response(&mut sock).await?;
+            match response {
+                DaemonResponse::BasicAck { successful } => {
+                    if successful {
+                        info!("Pairing request sent successfully");
+                    } else {
+                        error!("Failed to send pairing request");
+                        return Ok(());
+                    }
+                }
+                _ => {
+                    error!("Unexpected response from daemon");
+                    return Ok(());
+                }
+            }
+
+            info!("Enter the pairing pin shown on the brain:");
+            let mut editor = DefaultEditor::new().unwrap();
+            let pin = editor.readline("Enter PIN: >> ").unwrap();
+
+            let mut chars = pin.chars();
+
+            sock = BufReader::new(v5d_interface::connect_to_socket().await?);
+
+            write_command(&mut sock, DaemonCommand::PairingPin([
+                chars.next().unwrap().to_digit(10).unwrap() as u8,
+                chars.next().unwrap().to_digit(10).unwrap() as u8,
+                chars.next().unwrap().to_digit(10).unwrap() as u8,
+                chars.next().unwrap().to_digit(10).unwrap() as u8,
+            ])).await?;
+            let response = get_response(&mut sock).await?;
+            match response {
+                DaemonResponse::BasicAck { successful } => {
+                    if successful {
+                        info!("Pairing successful");
+                    } else {
+                        error!("Pairing failed");
+                    }
+                }
+                _ => {
+                    error!("Unexpected response from daemon");
+                }
+            }
         }
     }
 

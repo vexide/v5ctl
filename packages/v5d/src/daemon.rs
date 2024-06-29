@@ -122,18 +122,12 @@ impl Daemon {
                     compress_program: compression,
                     after_upload: after_upload.into(),
                     data: data.into(),
-                    ini_callback: Some(generate_callback(
-                        UploadStep::Ini,
-                        response_sender.clone(),
-                    )),
+                    ini_callback: Some(generate_callback(UploadStep::Ini, response_sender.clone())),
                     cold_callback: Some(generate_callback(
                         UploadStep::Cold,
                         response_sender.clone(),
                     )),
-                    hot_callback: Some(generate_callback(
-                        UploadStep::Hot,
-                        response_sender.clone(),
-                    )),
+                    hot_callback: Some(generate_callback(UploadStep::Hot, response_sender.clone())),
                 };
 
                 Some(DaemonResponse::TransferComplete(
@@ -158,6 +152,26 @@ impl Daemon {
                 *connection = setup_connection(self.connection_type).await?;
                 Some(DaemonResponse::BasicAck { successful: true })
             }
+            DaemonCommand::RequestPair => {
+                let mut connection = self.brain_connection.lock().await;
+                Some(match *connection {
+                    GenericConnection::Bluetooth(ref mut connection) => {
+                        connection.request_pairing().await?;
+                        DaemonResponse::BasicAck { successful: true }
+                    },
+                    GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
+                })
+            }
+            DaemonCommand::PairingPin(pin) => {
+                let mut connection = self.brain_connection.lock().await;
+                Some(match *connection {
+                    GenericConnection::Bluetooth(ref mut connection) => {
+                        connection.authenticate_pairing(pin).await?;
+                        DaemonResponse::BasicAck { successful: true }
+                    },
+                    GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
+                })
+            },
         };
 
         Ok(response)
