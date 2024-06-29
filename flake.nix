@@ -38,9 +38,9 @@
         };
       }) // {
         homeManagerModules = rec {
-          v5d = import ./nix self;
+          v5d = import ./hm-module self;
           default = v5d;
         };
-        overlays.default = import ./nix/overlays.nix { inherit inputs; };
+        overlays = import ./nix/overlays.nix { inherit inputs; };
       };
 }
