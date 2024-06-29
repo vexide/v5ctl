@@ -1,4 +1,4 @@
-{ config, lib, v5d, ... }:
+self: { config, lib, pkgs, ... }:
 
 with lib;
 let cfg = config.services.v5d;
@@ -14,7 +14,7 @@ in {
       };
       package = mkOption {
         type =  types.package;
-        default = v5d;
+        default = self.packages.${pkgs.stdenv.targetPlatform.system}.v5d;
         description = "The package to use for the V5 Brain";
       };
     };
