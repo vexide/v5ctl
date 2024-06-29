@@ -76,17 +76,17 @@ enum Action {
     /// Uploads a user program to the brain
     #[command(name = "upload")]
     UploadProgram {
-        /// Path to the hot bin to upload
-        ///
-        /// If cold is not provided, you must provide this
-        #[arg(required_unless_present = "cold")]
-        hot: Option<PathBuf>,
-
         /// Path to the cold bin to upload
         ///
         /// If hot is not provided, you must provide this
         #[arg(required_unless_present = "hot")]
         cold: Option<PathBuf>,
+
+        /// Path to the hot bin to upload
+        ///
+        /// If cold is not provided, you must provide this
+        #[arg(short, long, required_unless_present = "cold")]
+        hot: Option<PathBuf>,
 
         /// The slot to upload to
         #[arg(long)]
@@ -188,6 +188,8 @@ async fn main() -> anyhow::Result<()> {
                 );
                 bar.set_message("COLD");
 
+                bar.set_message(if hot.is_none() { "BIN" } else { "cold" });
+
                 Some(bar)
             } else {
                 None
@@ -202,8 +204,6 @@ async fn main() -> anyhow::Result<()> {
                     .unwrap()
                     .progress_chars("█▇▆▅▄▃▂▁ "),
                 );
-
-                bar.set_message(if cold.is_none() { "BIN" } else { "HOT" });
 
                 Some(bar)
             } else {
