@@ -3,7 +3,7 @@ use std::{io, sync::Arc};
 use log::{debug, error, info};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     spawn,
     sync::{mpsc::Sender, Mutex},
@@ -47,7 +47,7 @@ impl Daemon {
                 Ok((stream, _addr)) => {
                     let this = this.clone();
                     spawn(async move {
-                        if let Err(e) = this.handle_connection(stream).await {
+                        if let Err(e) = this.handle_connection(BufReader::new(stream)).await {
                             error!("Failed to handle connection: {}", e);
                         }
                     });
@@ -62,7 +62,7 @@ impl Daemon {
     async fn perform_command(
         self: Arc<Self>,
         command: DaemonCommand,
-        stream: Arc<Mutex<UnixStream>>,
+        stream: Arc<Mutex<BufReader<UnixStream>>>,
     ) -> Result<Option<DaemonResponse>, DaemonError> {
         let response = match command {
             DaemonCommand::MockTap { x, y } => {
@@ -163,10 +163,13 @@ impl Daemon {
         Ok(response)
     }
 
-    async fn handle_connection(self: Arc<Self>, mut stream: UnixStream) -> Result<(), DaemonError> {
+    async fn handle_connection(
+        self: Arc<Self>,
+        mut stream: BufReader<UnixStream>,
+    ) -> Result<(), DaemonError> {
         info!("Accepted connection from client");
         let mut content = String::new();
-        stream.read_to_string(&mut content).await?;
+        stream.read_line(&mut content).await?;
 
         let stream = Arc::new(Mutex::new(stream));
         let command: DaemonCommand = serde_json::from_str(&content)?;

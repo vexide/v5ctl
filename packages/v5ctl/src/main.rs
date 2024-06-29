@@ -2,7 +2,6 @@ use std::{io, path::PathBuf, time::Instant};
 
 use clap::{Parser, Subcommand, ValueEnum};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use itertools::Itertools;
 use log::{error, info};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -121,17 +120,16 @@ enum Action {
     Reconnect,
 }
 
-async fn write_command(stream: &mut UnixStream, cmd: DaemonCommand) -> io::Result<()> {
-    let content = serde_json::to_string(&cmd)?;
+async fn write_command(stream: &mut BufReader<UnixStream>, cmd: DaemonCommand) -> io::Result<()> {
+    let mut content = serde_json::to_string(&cmd)?;
+    content.push('\n');
     stream.write_all(content.as_bytes()).await?;
-    stream.shutdown().await?;
     Ok(())
 }
-async fn get_response(stream: &mut UnixStream) -> io::Result<Vec<DaemonResponse>> {
+async fn get_response(stream: &mut BufReader<UnixStream>) -> io::Result<DaemonResponse> {
     let mut response = String::new();
-    let mut reader = BufReader::new(stream);
-    reader.read_line(&mut response).await?;
-    let responses = response.lines().map(serde_json::from_str).try_collect()?;
+    stream.read_line(&mut response).await?;
+    let responses = serde_json::from_str(&response)?;
     Ok(responses)
 }
 
@@ -145,9 +143,11 @@ async fn main() -> anyhow::Result<()> {
         simplelog::ColorChoice::Auto,
     );
 
-    let mut sock = v5d_interface::connect_to_socket()
-        .await
-        .expect("Failed to connect to v5d! Is it running?");
+    let mut sock = BufReader::new(
+        v5d_interface::connect_to_socket()
+            .await
+            .expect("Failed to connect to v5d! Is it running?"),
+    );
     match args.action {
         Action::MockTap { x, y } => {
             write_command(&mut sock, DaemonCommand::MockTap { x, y }).await?;
@@ -243,6 +243,7 @@ async fn main() -> anyhow::Result<()> {
 
             'outer: loop {
                 let responses = get_response(&mut sock).await?;
+                
                 for response in responses {
                     match response {
                         DaemonResponse::TransferProgress { percent, step } => {
@@ -290,6 +291,15 @@ async fn main() -> anyhow::Result<()> {
                         }
                         _ => panic!("Unexpected response from daemon"),
                     }
+                    DaemonResponse::TransferComplete(res) => {
+                        if let Err(err) = res {
+                            error!("Failed to upload program: {}", err);
+                        } else {
+                            info!("Successfully uploaded program!");
+                        }
+                        break 'outer;
+                    }
+                    _ => panic!("Unexpected response from daemon"),
                 }
             }
         }
