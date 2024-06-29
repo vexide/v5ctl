@@ -38,7 +38,7 @@
         };
       }) // {
         homeManagerModules = {
-          default = import ./hm-module { inherit self; };
+          default = import ./nix/hm-module.nix { inherit self; };
         };
         overlays = import ./nix/overlays.nix { inherit inputs; };
       };
