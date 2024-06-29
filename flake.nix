@@ -37,9 +37,8 @@
           naersk = naersk';
         };
       }) // {
-        homeManagerModules = rec {
-          v5d = import ./hm-module self;
-          default = v5d;
+        homeManagerModules = {
+          default = import ./hm-module { inherit self; };
         };
         overlays = import ./nix/overlays.nix { inherit inputs; };
       };
