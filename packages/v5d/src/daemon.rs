@@ -1,6 +1,6 @@
 use std::{io, sync::Arc};
 
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -107,7 +107,7 @@ impl Daemon {
                         tokio::task::block_in_place(move || {
                             let response = DaemonResponse::TransferProgress { percent, step };
                             let sender = sender.blocking_lock();
-                            println!("CALLBACK: {:?}", response);
+                            trace!("CALLBACK: {:?}", response);
                             sender.blocking_send(response).unwrap();
                         });
                     })
