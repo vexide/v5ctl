@@ -135,7 +135,7 @@ pub async fn upload(
     let (fallback_name, data) = match (monolith, cold, hot) {
         (Some(monolith), None, None) => (
             monolith.file_stem().unwrap().to_string_lossy().to_string(),
-            ProgramData::Monolith(std::fs::read(monolith)?)
+            ProgramData::Monolith(std::fs::read(monolith)?),
         ),
         (None, None, Some(cold)) => (
             cold.file_stem().unwrap().to_string_lossy().to_string(),
@@ -189,7 +189,7 @@ pub async fn upload(
         hot_progress.tick();
     }
 
-    'outer: loop {
+    loop {
         let response = get_response(socket).await?;
 
         match response {
@@ -206,29 +206,29 @@ pub async fn upload(
                     UploadStep::Ini => {
                         ini_progress.set_position(position);
                         ini_progress.set_prefix(elapsed_format);
-                    },
+                    }
                     UploadStep::Monolith => {
                         if let Some(ref monolith_progress) = monolith_progress {
                             monolith_progress.set_position(position);
                             monolith_progress.set_prefix(elapsed_format);
                         }
-                    },
+                    }
                     UploadStep::Cold => {
                         if let Some(ref cold_progress) = cold_progress {
                             cold_progress.set_position(position);
                             cold_progress.set_prefix(elapsed_format);
                         }
-                    },
+                    }
                     UploadStep::Hot => {
                         if let Some(ref hot_progress) = hot_progress {
                             hot_progress.set_position(position);
                             hot_progress.set_prefix(elapsed_format);
                         }
-                    },
+                    }
                 }
 
                 prev_step = step;
-            },
+            }
             DaemonResponse::TransferComplete(res) => {
                 ini_progress.finish();
                 if let Some(ref monolith_progress) = monolith_progress {
@@ -245,8 +245,8 @@ pub async fn upload(
                 } else {
                     info!("Successfully uploaded program!");
                 }
-                break 'outer;
-            },
+                break;
+            }
             _ => panic!("Unexpected response from daemon"),
         }
     }

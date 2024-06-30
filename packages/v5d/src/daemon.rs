@@ -121,7 +121,7 @@ impl Daemon {
                     slot: slot - 1,
                     compress_program: compression,
                     after_upload: after_upload.into(),
-                    data: data.into(),
+                    data,
                     ini_callback: Some(generate_callback(UploadStep::Ini, response_sender.clone())),
                     monolith_callback: Some(generate_callback(
                         UploadStep::Monolith,

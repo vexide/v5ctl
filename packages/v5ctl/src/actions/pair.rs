@@ -22,15 +22,15 @@ pub async fn pair(socket: &mut BufReader<UnixStream>) -> anyhow::Result<()> {
             return Ok(());
         }
     }
-    
+
     info!("Enter the pairing pin shown on the brain:");
     let mut editor = DefaultEditor::new().unwrap();
     let pin = editor.readline("Enter PIN: >> ").unwrap();
-    
+
     let mut chars = pin.chars();
-    
+
     let mut socket = BufReader::new(v5d_interface::connect_to_socket().await?);
-    
+
     write_command(
         &mut socket,
         DaemonCommand::PairingPin([
