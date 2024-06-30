@@ -2,8 +2,7 @@ use std::{io, path::PathBuf};
 
 use actions::upload::{AfterUpload, ProgramIcon};
 use clap::{Parser, Subcommand};
-use log::{info, error};
-use rustyline::DefaultEditor;
+use log::info;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
