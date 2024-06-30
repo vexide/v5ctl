@@ -1,4 +1,4 @@
-self:
+{ packages }:
 { config, lib, pkgs, ... }:
 
 with lib;
@@ -16,7 +16,7 @@ in {
       };
       package = mkOption {
         type = types.package;
-        default = self.packages.${pkgs.stdenv.targetPlatform.system}.v5d;
+        default = packages.${pkgs.stdenv.targetPlatform.system}.v5d;
         description = "The package to use for the V5 Brain daemon.";
       };
     };
