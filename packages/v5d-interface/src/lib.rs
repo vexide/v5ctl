@@ -108,6 +108,8 @@ pub enum DaemonCommand {
         data: ProgramData,
     },
     Shutdown,
+    RequestPair,
+    PairingPin([u8; 4]),
     Reconnect,
 }
 

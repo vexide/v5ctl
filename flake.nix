@@ -3,20 +3,24 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
-    systems.url = "github:nix-systems/default-linux";
+    flake-utils.url = "github:numtide/flake-utils";
+    naersk.url = "github:nix-community/naersk";
     rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { nixpkgs, systems, rust-overlay, ... }:
-    let eachSystem = nixpkgs.lib.genAttrs (import systems);
-    in {
-      devShells = eachSystem (system:
-        let
-          pkgs = import nixpkgs {
-            overlays = [ (import rust-overlay) ];
-            inherit system;
-          };
-        in {
+  outputs = inputs@{ nixpkgs, flake-utils, rust-overlay, naersk, self, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs {
+          overlays = [ (import rust-overlay) ];
+          inherit system;
+        };
+        naersk' = pkgs.callPackage naersk {
+          rustc = pkgs.rust-bin.nightly.latest.default;
+          cargo = pkgs.rust-bin.nightly.latest.default;
+        };
+      in {
+        devShells = {
           default = pkgs.mkShell {
             buildInputs = with pkgs; [
               (rust-bin.nightly.latest.default.override {
@@ -27,6 +31,15 @@
               udev
             ];
           };
-        });
-    };
+        };
+        packages = import ./nix {
+          inherit pkgs;
+          naersk = naersk';
+        };
+      }) // {
+        homeManagerModules = {
+          default = import ./nix/hm-module.nix { inherit self; };
+        };
+        overlays = import ./nix/overlays.nix { inherit inputs; };
+      };
 }
