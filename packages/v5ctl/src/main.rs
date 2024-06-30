@@ -1,71 +1,22 @@
-use std::{io, path::PathBuf, time::Instant};
+use std::{io, path::PathBuf};
 
-use clap::{Parser, Subcommand, ValueEnum};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use log::{error, info};
+use actions::upload::{AfterUpload, ProgramIcon};
+use clap::{Parser, Subcommand};
+use log::{info, error};
 use rustyline::DefaultEditor;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
-use v5d_interface::{AfterFileUpload, DaemonCommand, DaemonResponse, ProgramData, UploadStep};
+use v5d_interface::{DaemonCommand, DaemonResponse};
+
+pub mod actions;
 
 #[derive(Parser)]
 #[command(version, about = "A CLI for interacting with the V5 Daemon (v5d)")]
 struct Args {
     #[clap(subcommand)]
     action: Action,
-}
-
-#[derive(ValueEnum, Debug, Clone, Copy, Default)]
-enum AfterUpload {
-    #[default]
-    None,
-    Run,
-    ShowScreen,
-}
-impl From<AfterUpload> for AfterFileUpload {
-    fn from(value: AfterUpload) -> Self {
-        match value {
-            AfterUpload::None => AfterFileUpload::DoNothing,
-            AfterUpload::Run => AfterFileUpload::RunProgram,
-            AfterUpload::ShowScreen => AfterFileUpload::ShowRunScreen,
-        }
-    }
-}
-
-#[derive(Default, Debug, ValueEnum, Clone, Copy)]
-#[repr(u16)]
-enum ProgramIcon {
-    VexCodingStudio = 0,
-    CoolX = 1,
-    /// This is the icon that appears when you provide a missing icon name.
-    /// 2 is one such icon that doesn't exist.
-    #[default]
-    QuestionMark = 2,
-    Pizza = 3,
-    Clawbot = 10,
-    Robot = 11,
-    PowerButton = 12,
-    Planets = 13,
-    Alien = 27,
-    AlienInUfo = 29,
-    CupInField = 50,
-    CupAndBall = 51,
-    Matlab = 901,
-    Pros = 902,
-    RobotMesh = 903,
-    RobotMeshCpp = 911,
-    RobotMeshBlockly = 912,
-    RobotMeshFlowol = 913,
-    RobotMeshJS = 914,
-    RobotMeshPy = 915,
-    /// This icon is duplicated several times and has many file names.
-    CodeFile = 920,
-    VexcodeBrackets = 921,
-    VexcodeBlocks = 922,
-    VexcodePython = 925,
-    VexcodeCpp = 926,
 }
 
 #[derive(Subcommand)]
@@ -77,16 +28,16 @@ enum Action {
     /// Uploads a user program to the brain
     #[command(name = "upload", visible_alias = "u")]
     UploadProgram {
+        /// Path to the monolith bin to upload
+        #[arg(required_unless_present_any = ["hot", "cold"], conflicts_with_all = ["hot", "cold"])]
+        monolith: Option<PathBuf>,
+
         /// Path to the hot bin to upload
-        ///
-        /// If cold is not provided, you must provide this
-        #[arg(short = 'o', long, required_unless_present = "cold")]
+        #[arg(long, required_unless_present_any = ["cold", "monolith"], conflicts_with = "monolith")]
         hot: Option<PathBuf>,
 
         /// Path to the cold bin to upload
-        ///
-        /// If hot is not provided, you must provide this
-        #[arg(required_unless_present = "hot")]
+        #[arg(long, required_unless_present_any = ["hot", "monolith"], conflicts_with = "monolith")]
         cold: Option<PathBuf>,
 
         /// The slot to upload to
@@ -162,143 +113,26 @@ async fn main() -> anyhow::Result<()> {
             description,
             name,
             program_type,
+            monolith,
             hot,
             cold,
             uncompressed,
             after_upload,
         } => {
-            let multi_progress = MultiProgress::new();
-
-            let ini_progress = multi_progress.add(ProgressBar::new(10000));
-            ini_progress.set_style(
-                ProgressStyle::with_template(
-                    "{msg:4} {percent_precise:>7}% {bar:40.cyan} {prefix}",
-                )
-                .unwrap()
-                .progress_chars("█▇▆▅▄▃▂▁ "),
-            );
-            ini_progress.set_message("INI");
-
-            let cold_progress = if cold.is_some() {
-                let bar = multi_progress.add(ProgressBar::new(10000));
-                bar.set_style(
-                    ProgressStyle::with_template(
-                        "{msg:4} {percent_precise:>7}% {bar:40.blue} {prefix}",
-                    )
-                    .unwrap()
-                    .progress_chars("█▇▆▅▄▃▂▁ "),
-                );
-                bar.set_message("COLD");
-
-                bar.set_message(if hot.is_none() { "BIN" } else { "cold" });
-
-                Some(bar)
-            } else {
-                None
-            };
-
-            let hot_progress = if hot.is_some() {
-                let bar = multi_progress.add(ProgressBar::new(10000));
-                bar.set_style(
-                    ProgressStyle::with_template(
-                        "{msg:4} {percent_precise:>7}% {bar:40.red} {prefix}",
-                    )
-                    .unwrap()
-                    .progress_chars("█▇▆▅▄▃▂▁ "),
-                );
-
-                Some(bar)
-            } else {
-                None
-            };
-
-            let (fallback_name, data) = match (hot, cold) {
-                (None, None) => unreachable!(),
-                (None, Some(cold)) => (
-                    cold.file_stem().unwrap().to_string_lossy().to_string(),
-                    ProgramData::encode_cold(std::fs::read(cold)?),
-                ),
-                (Some(hot), None) => (
-                    hot.file_stem().unwrap().to_string_lossy().to_string(),
-                    ProgramData::encode_hot(std::fs::read(hot)?),
-                ),
-                (Some(hot), Some(cold)) => (
-                    hot.file_stem().unwrap().to_string_lossy().to_string(),
-                    ProgramData::encode_both(std::fs::read(hot)?, std::fs::read(cold)?),
-                ),
-            };
-            let description = description.unwrap_or_else(|| "Uploaded with v5d".to_string());
-            let program_type = program_type.unwrap_or_else(|| "Unknown".to_string());
-            let command = DaemonCommand::UploadProgram {
-                name: name.unwrap_or(fallback_name),
-                description,
-                icon: format!("USER{:03}x.bmp", icon as u16),
-                program_type,
+            actions::upload(
+                &mut sock,
+                monolith,
+                hot,
+                cold,
                 slot,
-                compression: !uncompressed,
-                after_upload: after_upload.into(),
-                data,
-            };
-            write_command(&mut sock, command).await?;
-
-            let mut prev_percent: f32 = 0.0;
-            let mut prev_step = UploadStep::Ini;
-            let mut start = Instant::now();
-
-            'outer: loop {
-                let response = get_response(&mut sock).await?;
-
-                match response {
-                    DaemonResponse::TransferProgress { percent, step } => {
-                        let delta = ((percent - prev_percent) * 100.0) as u64;
-
-                        if prev_step != step {
-                            start = Instant::now();
-                        }
-
-                        let elapsed = start.elapsed();
-                        let elapsed_format = format!("{:.2?}", elapsed);
-
-                        match step {
-                            UploadStep::Ini => {
-                                ini_progress.inc(delta);
-                                ini_progress.set_prefix(elapsed_format);
-                            }
-                            UploadStep::Cold => {
-                                if let Some(ref cold_progress) = cold_progress {
-                                    cold_progress.inc(delta);
-                                    cold_progress.set_prefix(elapsed_format);
-                                }
-                            }
-                            UploadStep::Hot => {
-                                if let Some(ref hot_progress) = hot_progress {
-                                    hot_progress.inc(delta);
-                                    hot_progress.set_prefix(elapsed_format);
-                                }
-                            }
-                        }
-
-                        prev_step = step;
-                        prev_percent = percent;
-                    }
-                    DaemonResponse::TransferComplete(res) => {
-                        ini_progress.finish();
-                        if let Some(ref cold_progress) = cold_progress {
-                            cold_progress.finish();
-                        }
-                        if let Some(ref hot_progress) = hot_progress {
-                            hot_progress.finish();
-                        }
-                        if let Err(err) = res {
-                            error!("Failed to upload program: {}", err);
-                        } else {
-                            info!("Successfully uploaded program!");
-                        }
-                        break 'outer;
-                    }
-                    _ => panic!("Unexpected response from daemon"),
-                }
-            }
+                name,
+                description,
+                icon,
+                program_type,
+                uncompressed,
+                after_upload,
+            )
+            .await?;
         }
         Action::StopDaemon => {
             write_command(&mut sock, DaemonCommand::Shutdown).await?;
@@ -307,50 +141,7 @@ async fn main() -> anyhow::Result<()> {
             write_command(&mut sock, DaemonCommand::Reconnect).await?;
         }
         Action::Pair => {
-            write_command(&mut sock, DaemonCommand::RequestPair).await?;
-            let response = get_response(&mut sock).await?;
-            match response {
-                DaemonResponse::BasicAck { successful } => {
-                    if successful {
-                        info!("Pairing request sent successfully");
-                    } else {
-                        error!("Failed to send pairing request");
-                        return Ok(());
-                    }
-                }
-                _ => {
-                    error!("Unexpected response from daemon");
-                    return Ok(());
-                }
-            }
-
-            info!("Enter the pairing pin shown on the brain:");
-            let mut editor = DefaultEditor::new().unwrap();
-            let pin = editor.readline("Enter PIN: >> ").unwrap();
-
-            let mut chars = pin.chars();
-
-            sock = BufReader::new(v5d_interface::connect_to_socket().await?);
-
-            write_command(&mut sock, DaemonCommand::PairingPin([
-                chars.next().unwrap().to_digit(10).unwrap() as u8,
-                chars.next().unwrap().to_digit(10).unwrap() as u8,
-                chars.next().unwrap().to_digit(10).unwrap() as u8,
-                chars.next().unwrap().to_digit(10).unwrap() as u8,
-            ])).await?;
-            let response = get_response(&mut sock).await?;
-            match response {
-                DaemonResponse::BasicAck { successful } => {
-                    if successful {
-                        info!("Pairing successful");
-                    } else {
-                        error!("Pairing failed");
-                    }
-                }
-                _ => {
-                    error!("Unexpected response from daemon");
-                }
-            }
+            actions::pair(&mut sock).await?;
         }
     }
 

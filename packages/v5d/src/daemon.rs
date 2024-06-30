@@ -107,6 +107,7 @@ impl Daemon {
                         tokio::task::block_in_place(move || {
                             let response = DaemonResponse::TransferProgress { percent, step };
                             let sender = sender.blocking_lock();
+                            println!("CALLBACK: {:?}", response);
                             sender.blocking_send(response).unwrap();
                         });
                     })
@@ -122,6 +123,10 @@ impl Daemon {
                     after_upload: after_upload.into(),
                     data: data.into(),
                     ini_callback: Some(generate_callback(UploadStep::Ini, response_sender.clone())),
+                    monolith_callback: Some(generate_callback(
+                        UploadStep::Monolith,
+                        response_sender.clone(),
+                    )),
                     cold_callback: Some(generate_callback(
                         UploadStep::Cold,
                         response_sender.clone(),
@@ -157,7 +162,7 @@ impl Daemon {
                     GenericConnection::Bluetooth(ref mut connection) => {
                         connection.request_pairing().await?;
                         DaemonResponse::BasicAck { successful: true }
-                    },
+                    }
                     GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
                 })
             }
@@ -167,10 +172,10 @@ impl Daemon {
                     GenericConnection::Bluetooth(ref mut connection) => {
                         connection.authenticate_pairing(pin).await?;
                         DaemonResponse::BasicAck { successful: true }
-                    },
+                    }
                     GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
                 })
-            },
+            }
         };
 
         Ok(response)
