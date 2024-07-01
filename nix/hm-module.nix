@@ -24,11 +24,18 @@ in {
 
   config = (mkIf cfg.enable {
     systemd.user.services.v5d = {
-      Unit = { Description = "VEX V5 Brain daemon."; };
+      Unit = {
+        Description = "VEX V5 Brain daemon.";
+        After = ["default.target"];
+        Requires = ["default.target"];
+      };
       Service = {
         Type = "simple";
         ExecStart = "${cfg.package}/bin/v5d -c ${cfg.connectionType}";
         Restart = "on-failure";
+      };
+      Install = {
+        WantedBy = ["default.target"];
       };
     };
   });
