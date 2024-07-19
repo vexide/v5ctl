@@ -9,17 +9,17 @@ use tokio::{
     sync::{mpsc::Sender, Mutex},
 };
 use v5d_interface::{DaemonCommand, DaemonResponse, UploadStep};
-use vex_v5_serial::connection::{Connection, ConnectionError};
-
-use crate::{
-    connection::{setup_connection, GenericConnection},
-    setup_socket, ConnectionType,
+use vex_v5_serial::connection::{
+    generic::{GenericConnection, GenericError},
+    Connection,
 };
+
+use crate::{connection::setup_connection, setup_socket, ConnectionType};
 
 #[derive(Debug, Error)]
 pub enum DaemonError {
     #[error("Connection error: {0}")]
-    Connection(#[from] ConnectionError),
+    Connection(#[from] GenericError),
     #[error("Communication serialization error: {0}")]
     Serde(#[from] serde_json::Error),
     #[error("IO error: {0}")]
@@ -160,7 +160,10 @@ impl Daemon {
                 let mut connection = self.brain_connection.lock().await;
                 Some(match *connection {
                     GenericConnection::Bluetooth(ref mut connection) => {
-                        connection.request_pairing().await?;
+                        connection
+                            .request_pairing()
+                            .await
+                            .map_err(Into::<GenericError>::into)?;
                         DaemonResponse::BasicAck { successful: true }
                     }
                     GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
@@ -170,7 +173,10 @@ impl Daemon {
                 let mut connection = self.brain_connection.lock().await;
                 Some(match *connection {
                     GenericConnection::Bluetooth(ref mut connection) => {
-                        connection.authenticate_pairing(pin).await?;
+                        connection
+                            .authenticate_pairing(pin)
+                            .await
+                            .map_err(Into::<GenericError>::into)?;
                         DaemonResponse::BasicAck { successful: true }
                     }
                     GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },

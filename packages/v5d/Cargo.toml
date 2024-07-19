@@ -13,4 +13,4 @@ simplelog = "0.12.2"
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["net", "macros", "io-util"] }
 v5d-interface = { version = "0.1.0", path = "../v5d-interface" }
-vex_v5_serial = { git = "https://github.com/vexide/vex-v5-serial", version = "0.0.1" }
+vex-v5-serial = "0.2.1"
