@@ -2,7 +2,10 @@ use std::{io, path::PathBuf};
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use tokio::net::UnixStream;
+use tokio::{
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    net::UnixStream,
+};
 use vex_v5_serial::packets::file::FileExitAction;
 
 pub use vex_v5_serial::commands::file::ProgramData;
@@ -21,6 +24,22 @@ pub async fn connect_to_socket() -> io::Result<UnixStream> {
 
     info!("Connected to UNIX socket at {:?}", path);
     Ok(socket)
+}
+
+pub async fn send_command(
+    stream: &mut BufReader<UnixStream>,
+    cmd: DaemonCommand,
+) -> io::Result<()> {
+    let mut content = serde_json::to_string(&cmd)?;
+    content.push('\n');
+    stream.write_all(content.as_bytes()).await?;
+    Ok(())
+}
+pub async fn get_response(stream: &mut BufReader<UnixStream>) -> io::Result<DaemonResponse> {
+    let mut response = String::new();
+    stream.read_line(&mut response).await?;
+    let responses = serde_json::from_str(&response)?;
+    Ok(responses)
 }
 
 #[derive(Debug, Serialize, Deserialize)]

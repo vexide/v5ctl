@@ -2225,6 +2225,7 @@ dependencies = [
  "dirs-next",
  "log",
  "serde",
+ "serde_json",
  "socket2",
  "tokio",
  "vex-v5-serial",

@@ -1,12 +1,10 @@
 use log::{error, info};
 use rustyline::DefaultEditor;
 use tokio::{io::BufReader, net::UnixStream};
-use v5d_interface::{DaemonCommand, DaemonResponse};
-
-use crate::{get_response, write_command};
+use v5d_interface::{get_response, send_command, DaemonCommand, DaemonResponse};
 
 pub async fn pair(socket: &mut BufReader<UnixStream>) -> anyhow::Result<()> {
-    write_command(socket, DaemonCommand::RequestPair).await?;
+    send_command(socket, DaemonCommand::RequestPair).await?;
     let response = get_response(socket).await?;
     match response {
         DaemonResponse::BasicAck { successful } => {
@@ -31,7 +29,7 @@ pub async fn pair(socket: &mut BufReader<UnixStream>) -> anyhow::Result<()> {
 
     let mut socket = BufReader::new(v5d_interface::connect_to_socket().await?);
 
-    write_command(
+    send_command(
         &mut socket,
         DaemonCommand::PairingPin([
             chars.next().unwrap().to_digit(10).unwrap() as u8,

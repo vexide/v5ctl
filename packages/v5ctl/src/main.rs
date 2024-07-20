@@ -1,13 +1,10 @@
-use std::{io, path::PathBuf};
+use std::path::PathBuf;
 
 use actions::upload::{AfterUpload, ProgramIcon};
 use clap::{Parser, Subcommand};
 use log::info;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
-};
-use v5d_interface::{DaemonCommand, DaemonResponse};
+use tokio::io::BufReader;
+use v5d_interface::{get_response, send_command, DaemonCommand};
 
 pub mod actions;
 
@@ -72,19 +69,6 @@ enum Action {
     Reconnect,
 }
 
-async fn write_command(stream: &mut BufReader<UnixStream>, cmd: DaemonCommand) -> io::Result<()> {
-    let mut content = serde_json::to_string(&cmd)?;
-    content.push('\n');
-    stream.write_all(content.as_bytes()).await?;
-    Ok(())
-}
-async fn get_response(stream: &mut BufReader<UnixStream>) -> io::Result<DaemonResponse> {
-    let mut response = String::new();
-    stream.read_line(&mut response).await?;
-    let responses = serde_json::from_str(&response)?;
-    Ok(responses)
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -102,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
     );
     match args.action {
         Action::MockTap { x, y } => {
-            write_command(&mut sock, DaemonCommand::MockTap { x, y }).await?;
+            send_command(&mut sock, DaemonCommand::MockTap { x, y }).await?;
             let response = get_response(&mut sock).await?;
             info!("Received response: {:?}", response);
         }
@@ -134,10 +118,10 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Action::StopDaemon => {
-            write_command(&mut sock, DaemonCommand::Shutdown).await?;
+            send_command(&mut sock, DaemonCommand::Shutdown).await?;
         }
         Action::Reconnect => {
-            write_command(&mut sock, DaemonCommand::Reconnect).await?;
+            send_command(&mut sock, DaemonCommand::Reconnect).await?;
         }
         Action::Pair => {
             actions::pair(&mut sock).await?;

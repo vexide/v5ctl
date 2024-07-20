@@ -4,9 +4,10 @@ use clap::ValueEnum;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{error, info};
 use tokio::{io::BufReader, net::UnixStream};
-use v5d_interface::{AfterFileUpload, DaemonCommand, DaemonResponse, ProgramData, UploadStep};
-
-use crate::{get_response, write_command};
+use v5d_interface::{
+    get_response, send_command, AfterFileUpload, DaemonCommand, DaemonResponse, ProgramData,
+    UploadStep,
+};
 
 #[derive(ValueEnum, Debug, Clone, Copy, Default)]
 pub enum AfterUpload {
@@ -173,7 +174,7 @@ pub async fn upload(
         after_upload: after_upload.into(),
         data,
     };
-    write_command(socket, command).await?;
+    send_command(socket, command).await?;
 
     let mut prev_step = UploadStep::Ini;
     let mut start = Instant::now();

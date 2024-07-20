@@ -3,10 +3,10 @@ use std::time::Duration;
 use log::{info, warn};
 use tokio::{select, time::sleep};
 use vex_v5_serial::connection::{
-        bluetooth,
-        generic::{GenericConnection, GenericError},
-        serial,
-    };
+    bluetooth,
+    generic::{GenericConnection, GenericError},
+    serial,
+};
 
 use crate::daemon::DaemonError;
 
