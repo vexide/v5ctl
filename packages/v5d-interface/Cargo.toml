@@ -1,13 +1,16 @@
 [package]
 name = "v5d-interface"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-log = "0.4.21"
 socket2 = "0.5.7"
 dirs-next = "2.0.0"
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { version = "1.0.203", features = ["derive", "rc"] }
 tokio = { version = "1.38.0", features = ["net"] }
-vex-v5-serial = { version = "0.2.1", default-features = false }
+vex-v5-serial = { version = "0.3.3" }
 serde_json = "1.0.120"
+snafu = { version = "0.8.9", features = ["rust_1_81"] }
+anyhow = "1.0.99"
+interprocess = { version = "2.2.3", features = ["tokio"] }
+tracing = "0.1.41"

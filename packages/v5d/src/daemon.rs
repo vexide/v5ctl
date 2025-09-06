@@ -1,29 +1,42 @@
 use std::{io, sync::Arc};
 
 use log::{debug, error, info, trace};
-use thiserror::Error;
+use snafu::Snafu;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     spawn,
-    sync::{mpsc::Sender, Mutex},
+    sync::{Mutex, MutexGuard, mpsc::Sender},
 };
-use v5d_interface::{DaemonCommand, DaemonResponse, UploadStep};
-use vex_v5_serial::connection::{
-    generic::{GenericConnection, GenericError},
-    Connection,
+use v5d_interface::{
+    DeviceInterface, TransferProgress, UploadProgramOpts, UploadStep, connection::DaemonListener,
+};
+use vex_v5_serial::{
+    commands::screen::MockTap,
+    connection::{
+        Connection,
+        bluetooth::BluetoothConnection,
+        generic::{GenericConnection, GenericError},
+    },
 };
 
-use crate::{connection::setup_connection, setup_socket, ConnectionType};
+use crate::{ConnectionType, connection::setup_connection, setup_socket};
 
-#[derive(Debug, Error)]
+#[derive(Debug, Snafu)]
 pub enum DaemonError {
-    #[error("Connection error: {0}")]
-    Connection(#[from] GenericError),
-    #[error("Communication serialization error: {0}")]
-    Serde(#[from] serde_json::Error),
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
+    #[snafu(transparent)]
+    Connection { source: GenericError },
+    #[snafu(display("Failed to serialize message"))]
+    Serde { source: serde_json::Error },
+    #[snafu(transparent)]
+    Io { source: io::Error },
+    #[snafu(display(
+        "This operation may only be performed on {required:?} connections (have: {actual:?} connection)"
+    ))]
+    WrongConnectionType {
+        required: vex_v5_serial::connection::ConnectionType,
+        actual: vex_v5_serial::connection::ConnectionType,
+    },
 }
 
 pub struct Daemon {
@@ -41,177 +54,101 @@ impl Daemon {
     }
 
     pub async fn run(self) {
-        let this = Arc::new(self);
-        loop {
-            match this.socket.accept().await {
-                Ok((stream, _addr)) => {
-                    let this = this.clone();
-                    spawn(async move {
-                        if let Err(e) = this.handle_connection(BufReader::new(stream)).await {
-                            error!("Failed to handle connection: {}", e);
-                        }
-                    });
-                }
-                Err(e) => {
-                    error!("Failed to accept connection: {}", e);
-                }
-            }
-        }
+        let mut listener = DaemonListener::new(self).expect("socket should be available");
+        listener.handle_connections().await;
     }
 
-    async fn perform_command(
-        self: Arc<Self>,
-        command: DaemonCommand,
-        stream: Arc<Mutex<BufReader<UnixStream>>>,
-    ) -> Result<Option<DaemonResponse>, DaemonError> {
-        let response = match command {
-            DaemonCommand::MockTap { x, y } => {
-                self.brain_connection
-                    .lock()
-                    .await
-                    .execute_command(vex_v5_serial::commands::screen::MockTap { x, y })
-                    .await?;
-                Some(DaemonResponse::BasicAck { successful: true })
-            }
-            DaemonCommand::UploadProgram {
-                name,
-                description,
-                icon,
-                slot,
-                compression,
-                after_upload,
-                data,
-                program_type,
-            } => {
-                let (response_sender, mut response_receiver) =
-                    tokio::sync::mpsc::channel::<DaemonResponse>(1000);
-                let response_sender = Arc::new(Mutex::new(response_sender));
+    fn get_bluetooth(&mut self) -> Result<&mut BluetoothConnection, DaemonError> {
+        let connection = self.brain_connection.get_mut();
 
-                spawn(async move {
-                    let mut stream = stream.lock().await;
-                    while let Some(response) = response_receiver.recv().await {
-                        let mut content = serde_json::to_string(&response).unwrap();
-                        content.push('\n');
-                        let content_bytes = content.as_bytes();
-                        stream.write_all(content_bytes).await.unwrap();
-                        stream.flush().await.unwrap();
-                    }
+        if let GenericConnection::Bluetooth(connection) = connection {
+            Ok(connection)
+        } else {
+            WrongConnectionTypeSnafu {
+                actual: connection.connection_type(),
+                required: vex_v5_serial::connection::ConnectionType::Bluetooth,
+            }
+            .fail()?
+        }
+    }
+}
+
+impl DeviceInterface for Daemon {
+    async fn mock_tap(&mut self, x: u16, y: u16) -> v5d_interface::Result {
+        let conn = self.brain_connection.get_mut();
+        conn.execute_command(MockTap { x, y }).await?;
+        Ok(())
+    }
+
+    async fn upload_program(
+        &mut self,
+        opts: UploadProgramOpts,
+        handle_progress: impl FnMut(TransferProgress) + Send,
+    ) -> v5d_interface::Result {
+        let reporter = Arc::new(Mutex::new(handle_progress));
+
+        fn progress_callback_for<'a>(
+            step: UploadStep,
+            reporter: Arc<Mutex<impl FnMut(TransferProgress) + Send + 'a>>,
+        ) -> Box<dyn FnMut(f32) + Send + 'a> {
+            Box::new(move |percent| {
+                tokio::task::block_in_place(|| {
+                    reporter.blocking_lock()(TransferProgress { percent, step });
                 });
-
-                fn generate_callback(
-                    step: UploadStep,
-                    sender: Arc<Mutex<Sender<DaemonResponse>>>,
-                ) -> Box<dyn FnMut(f32) + Send> {
-                    Box::new(move |percent| {
-                        let sender = sender.clone();
-                        tokio::task::block_in_place(move || {
-                            let response = DaemonResponse::TransferProgress { percent, step };
-                            let sender = sender.blocking_lock();
-                            trace!("CALLBACK: {:?}", response);
-                            sender.blocking_send(response).unwrap();
-                        });
-                    })
-                }
-
-                let command = vex_v5_serial::commands::file::UploadProgram {
-                    name,
-                    program_type,
-                    description,
-                    icon,
-                    slot: slot - 1,
-                    compress_program: compression,
-                    after_upload: after_upload.into(),
-                    data,
-                    ini_callback: Some(generate_callback(UploadStep::Ini, response_sender.clone())),
-                    monolith_callback: Some(generate_callback(
-                        UploadStep::Monolith,
-                        response_sender.clone(),
-                    )),
-                    cold_callback: Some(generate_callback(
-                        UploadStep::Cold,
-                        response_sender.clone(),
-                    )),
-                    hot_callback: Some(generate_callback(UploadStep::Hot, response_sender.clone())),
-                };
-
-                Some(DaemonResponse::TransferComplete(
-                    match self
-                        .brain_connection
-                        .lock()
-                        .await
-                        .execute_command(command)
-                        .await
-                    {
-                        Ok(_) => Ok(()),
-                        Err(err) => Err(format!("Failed to upload program: {}", err)),
-                    },
-                ))
-            }
-            DaemonCommand::Shutdown => {
-                info!("Received shutdown command");
-                super::shutdown();
-            }
-            DaemonCommand::Reconnect => {
-                let mut connection = self.brain_connection.lock().await;
-                *connection = setup_connection(self.connection_type).await?;
-                Some(DaemonResponse::BasicAck { successful: true })
-            }
-            DaemonCommand::RequestPair => {
-                let mut connection = self.brain_connection.lock().await;
-                Some(match *connection {
-                    GenericConnection::Bluetooth(ref mut connection) => {
-                        connection
-                            .request_pairing()
-                            .await
-                            .map_err(Into::<GenericError>::into)?;
-                        DaemonResponse::BasicAck { successful: true }
-                    }
-                    GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
-                })
-            }
-            DaemonCommand::PairingPin(pin) => {
-                let mut connection = self.brain_connection.lock().await;
-                Some(match *connection {
-                    GenericConnection::Bluetooth(ref mut connection) => {
-                        connection
-                            .authenticate_pairing(pin)
-                            .await
-                            .map_err(Into::<GenericError>::into)?;
-                        DaemonResponse::BasicAck { successful: true }
-                    }
-                    GenericConnection::Serial(_) => DaemonResponse::BasicAck { successful: false },
-                })
-            }
-        };
-
-        Ok(response)
-    }
-
-    async fn handle_connection(
-        self: Arc<Self>,
-        mut stream: BufReader<UnixStream>,
-    ) -> Result<(), DaemonError> {
-        info!("Accepted connection from client");
-        let mut content = String::new();
-        stream.read_line(&mut content).await?;
-
-        let stream = Arc::new(Mutex::new(stream));
-        let command: DaemonCommand = serde_json::from_str(&content)?;
-        debug!("Received command: {:?}", command);
-        let response = match self.perform_command(command, stream.clone()).await {
-            Ok(response) => response,
-            Err(e) => {
-                error!("Failed to perform command: {}", e);
-                Some(DaemonResponse::BasicAck { successful: false })
-            }
-        };
-        if let Some(response) = response {
-            let mut content = serde_json::to_string(&response)?;
-            content.push('\n');
-            let content_bytes = content.as_bytes();
-            stream.lock().await.write_all(content_bytes).await?;
+            })
         }
+
+        let command = vex_v5_serial::commands::file::UploadProgram {
+            name: opts.name,
+            program_type: opts.program_type,
+            description: opts.description,
+            icon: opts.icon,
+            slot: opts.slot - 1,
+            compress_program: opts.compression,
+            after_upload: opts.after_upload.into(),
+            data: opts.data,
+            ini_callback: Some(progress_callback_for(UploadStep::Ini, reporter.clone())),
+            monolith_callback: Some(progress_callback_for(
+                UploadStep::Monolith,
+                reporter.clone(),
+            )),
+            cold_callback: Some(progress_callback_for(UploadStep::Cold, reporter.clone())),
+            hot_callback: Some(progress_callback_for(UploadStep::Hot, reporter.clone())),
+        };
+
+        let conn = self.brain_connection.get_mut();
+        conn.execute_command(command).await?;
 
         Ok(())
+    }
+
+    async fn pairing_pin(&mut self, pin: [u8; 4]) -> v5d_interface::Result {
+        let connection = self.get_bluetooth()?;
+        connection
+            .authenticate_pairing(pin)
+            .await
+            .map_err(GenericError::from)?;
+        Ok(())
+    }
+
+    async fn reconnect(&mut self) -> v5d_interface::Result {
+        let connection = self.brain_connection.get_mut();
+        *connection = setup_connection(self.connection_type).await?;
+
+        Ok(())
+    }
+
+    async fn request_pair(&mut self) -> v5d_interface::Result {
+        let connection = self.get_bluetooth()?;
+        connection
+            .request_pairing()
+            .await
+            .map_err(GenericError::from)?;
+        Ok(())
+    }
+
+    async fn shutdown(&mut self) -> v5d_interface::Result {
+        info!("Received shutdown command");
+        super::shutdown();
     }
 }

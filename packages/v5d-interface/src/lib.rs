@@ -1,45 +1,45 @@
-use std::{io, path::PathBuf};
+use std::{future::Future, io, path::PathBuf, rc::Rc, sync::Arc};
 
-use log::{debug, info};
 use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, Snafu};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
+use tracing::{debug, info};
 use vex_v5_serial::packets::file::FileExitAction;
 
 pub use vex_v5_serial::commands::file::ProgramData;
 
-pub fn socket_path() -> PathBuf {
-    dirs_next::runtime_dir()
-        .expect("Currently, only Linux is supported by the V5 Daemon")
-        .join("v5d.sock")
+pub use crate::error::Result;
+
+pub mod connection;
+pub mod error;
+
+pub trait DeviceInterface {
+    fn mock_tap(&mut self, x: u16, y: u16) -> impl Future<Output = Result> + Send;
+    fn upload_program(
+        &mut self,
+        opts: UploadProgramOpts,
+        handle_progress: impl FnMut(TransferProgress) + Send,
+    ) -> impl Future<Output = Result> + Send;
+    fn shutdown(&mut self) -> impl Future<Output = Result> + Send;
+    fn request_pair(&mut self) -> impl Future<Output = Result> + Send;
+    fn pairing_pin(&mut self, pin: [u8; 4]) -> impl Future<Output = Result> + Send;
+    fn reconnect(&mut self) -> impl Future<Output = Result> + Send;
 }
 
-pub async fn connect_to_socket() -> io::Result<UnixStream> {
-    let path = socket_path();
-    debug!("Connecting to UNIX socket at {:?}", path);
-
-    let socket = UnixStream::connect(&path).await?;
-
-    info!("Connected to UNIX socket at {:?}", path);
-    Ok(socket)
-}
-
-pub async fn send_command(
-    stream: &mut BufReader<UnixStream>,
-    cmd: DaemonCommand,
-) -> io::Result<()> {
-    let mut content = serde_json::to_string(&cmd)?;
-    content.push('\n');
-    stream.write_all(content.as_bytes()).await?;
-    Ok(())
-}
-pub async fn get_response(stream: &mut BufReader<UnixStream>) -> io::Result<DaemonResponse> {
-    let mut response = String::new();
-    stream.read_line(&mut response).await?;
-    let responses = serde_json::from_str(&response)?;
-    Ok(responses)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UploadProgramOpts {
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub program_type: String,
+    /// 1-indexed slot
+    pub slot: u8,
+    pub compression: bool,
+    pub after_upload: AfterFileUpload,
+    pub data: ProgramData,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,32 +68,8 @@ pub enum UploadStep {
     Hot,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum DaemonCommand {
-    MockTap {
-        x: u16,
-        y: u16,
-    },
-    UploadProgram {
-        name: String,
-        description: String,
-        icon: String,
-        program_type: String,
-        // 1-indexed slot
-        slot: u8,
-        compression: bool,
-        after_upload: AfterFileUpload,
-        data: ProgramData,
-    },
-    Shutdown,
-    RequestPair,
-    PairingPin([u8; 4]),
-    Reconnect,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub enum DaemonResponse {
-    BasicAck { successful: bool },
-    TransferProgress { percent: f32, step: UploadStep },
-    TransferComplete(Result<(), String>),
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TransferProgress {
+    pub percent: f32,
+    pub step: UploadStep,
 }
