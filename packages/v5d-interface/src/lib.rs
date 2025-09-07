@@ -1,3 +1,12 @@
+//! High-level API for controlling VEX V5 devices.
+//!
+//! The core feature this crate provides is the [`DeviceInterface`],
+//! which exposes the functionality required to control a VEX device.
+//!
+//! It also exposes the [`connection`] module, which contains utilities for either
+//! delegating requests regarding devices to another process or accepting
+//! those requests using your own implementation of [`DeviceInterface`].
+
 use std::{future::Future, io, path::PathBuf, rc::Rc, sync::Arc};
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +25,14 @@ pub use crate::error::Result;
 pub mod connection;
 pub mod error;
 
+/// A trait for communicating with VEX devices.
+///
+/// Structs that send commands to a VEX device may implement this trait.
+/// This can either be done directly (i.e. over serial) or indirectly (for example,
+/// by connecting to a remote daemon).
+///
+/// This crate provides [`DaemonConnection`](connection::DaemonConnection), an
+/// implementation of this trait that delegates these actions to another process.
 pub trait DeviceInterface {
     fn mock_tap(&mut self, x: u16, y: u16) -> impl Future<Output = Result> + Send;
     fn upload_program(

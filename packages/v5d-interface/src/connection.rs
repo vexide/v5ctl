@@ -1,3 +1,14 @@
+//! Delegation of [`DeviceInterface`] calls to another process.
+//!
+//! This module contains utilities for either both delegating requests
+//! regarding devices to another process or configuring your own
+//! process to accept those requests using an implementation of
+//! [`DeviceInterface`].
+//!
+//! This is implemented using OS inter-process communication APIs under
+//! the hood, but this is all abstracted away using [`DaemonConnection`]
+//! (client) and [`DaemonListener`] (server).
+
 use std::{fmt::Debug, io::ErrorKind, sync::Arc};
 
 use interprocess::local_socket::{
@@ -57,11 +68,16 @@ impl BufStream {
     }
 }
 
+/// A connection to a remote VEX device connection implementation.
+///
+/// This struct implements [`DeviceInterface`] by asking another
+/// process to do the work for it.
 pub struct DaemonConnection {
     stream: BufStream,
 }
 
 impl DaemonConnection {
+    /// Connect to a running process exposing its device
     pub async fn new() -> Result<Self, ConnectionError> {
         let stream = Stream::connect(get_socket_name()).await?;
 
@@ -146,12 +162,21 @@ impl DeviceInterface for DaemonConnection {
     }
 }
 
+/// A server that listens for device communication requests.
+///
+/// This struct allows you to expose your own [`DeviceInterface`]
+/// implementation so that other processes can access it using
+/// a [`DaemonConnection`] struct.
 pub struct DaemonListener<I: DeviceInterface + Send + 'static> {
     interface: Arc<Mutex<I>>,
     listener: Listener,
 }
 
 impl<I: DeviceInterface + Send + 'static> DaemonListener<I> {
+    /// Register this process as the current device daemon.
+    ///
+    /// Next, call [`Self::handle_connections`] to begin handling
+    /// requests.
     pub fn new(interface: I) -> Result<Self, ConnectionError> {
         let listener = ListenerOptions::new()
             .name(get_socket_name())
@@ -174,6 +199,7 @@ impl<I: DeviceInterface + Send + 'static> DaemonListener<I> {
         self.interface.clone()
     }
 
+    /// Begin handling incoming connections.
     pub async fn handle_connections(&mut self) {
         loop {
             let stream = match self.listener.accept().await {
@@ -196,6 +222,7 @@ impl<I: DeviceInterface + Send + 'static> DaemonListener<I> {
     }
 }
 
+/// Represents a single IPC connection.
 struct IncomingConnection<I: DeviceInterface + Send> {
     stream: BufStream,
     interface: Arc<Mutex<I>>,
@@ -209,6 +236,7 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
         }
     }
 
+    /// Handle incoming commands until the connection is closed.
     async fn handle_commands(&mut self) -> Result {
         info!("Accepted connection from client");
 
@@ -219,6 +247,8 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
         Ok(())
     }
 
+    /// Reads the next message, or returns `None` if the other
+    /// process disconnected.
     async fn read(&mut self) -> Result<Option<DaemonCommand>> {
         let mut command_string = String::new();
         let size = self.stream.reader.read_line(&mut command_string).await?;
@@ -248,6 +278,8 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
         Ok(())
     }
 
+    /// Executes a serialized command using the [`DeviceInterface`] stored
+    /// in this struct.
     async fn dispatch_command(&mut self, command: DaemonCommand) -> Result {
         let interface = self.interface.clone();
         let mut interface = interface.lock().await;
@@ -269,7 +301,6 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
 
                 return Ok(());
             }
-            // DaemonCommand::PairingPin(pin) =
             _ => todo!(),
         }
         .map_err(RemoteError::from);
