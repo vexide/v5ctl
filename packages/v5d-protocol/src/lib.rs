@@ -20,4 +20,7 @@ pub(crate) mod ecmds {
     // FIFO commands
     pub const FIFO_READ: u8 = 0x20;
     pub const FIFO_WRITE: u8 = 0x21;
+
+    // Connection sharing commands
+    pub const CON_LOCK: u8 = 0x30;
 }

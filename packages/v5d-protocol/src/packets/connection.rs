@@ -1,12 +1,16 @@
-//! Custom packets for communication with the v5d daemon.
-
 use vex_v5_serial::{
-    decode::Decode,
+    decode::{Decode, DecodeError},
     encode::Encode,
     packets::cdc2::{Cdc2CommandPacket, Cdc2ReplyPacket},
 };
 
-use crate::{cmds::V5D_CDC, ecmds::{BLE_PIN, CONNECT_REQUEST, CON_TYPE}};
+use crate::{
+    cmds::V5D_CDC,
+    ecmds::{BLE_PIN, CON_TYPE, CONNECT_REQUEST},
+};
+
+pub type ConnectionTypePacket = Cdc2CommandPacket<V5D_CDC, CON_TYPE, ()>;
+pub type ConnectionTypeReplyPacket = Cdc2ReplyPacket<V5D_CDC, CON_TYPE, ConnectedType>;
 
 pub type ConnectRequestPacket = Cdc2CommandPacket<V5D_CDC, CONNECT_REQUEST, ConnectRequestPayload>;
 pub type ConnectionRequestReplyPacket = Cdc2ReplyPacket<V5D_CDC, CONNECT_REQUEST, ConnectedType>;
@@ -16,6 +20,7 @@ pub type ConnectionRequestReplyPacket = Cdc2ReplyPacket<V5D_CDC, CONNECT_REQUEST
 pub enum ConnectedType {
     Serial = 0,
     Bluetooth = 1,
+    NoConnection = 255,
 }
 impl Decode for ConnectedType {
     fn decode(
@@ -25,11 +30,17 @@ impl Decode for ConnectedType {
         match byte {
             0 => Ok(ConnectedType::Serial),
             1 => Ok(ConnectedType::Bluetooth),
+            255 => Ok(ConnectedType::NoConnection),
             _ => Err(vex_v5_serial::decode::DecodeError::UnexpectedValue {
                 value: byte,
                 expected: &[0, 1],
             }),
         }
+    }
+}
+impl Encode for ConnectedType {
+    fn encode(&self) -> Result<Vec<u8>, vex_v5_serial::encode::EncodeError> {
+        Ok(vec![*self as u8])
     }
 }
 
@@ -45,6 +56,19 @@ impl Encode for ConnectionTypes {
         Ok(vec![self.bits()])
     }
 }
+impl Decode for ConnectionTypes {
+    fn decode(
+        data: impl IntoIterator<Item = u8>,
+    ) -> Result<Self, vex_v5_serial::decode::DecodeError> {
+        let byte = u8::decode(data)?;
+        ConnectionTypes::from_bits(byte).ok_or(
+            vex_v5_serial::decode::DecodeError::UnexpectedValue {
+                value: byte,
+                expected: &[0, 1, 2, 3],
+            },
+        )
+    }
+}
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[non_exhaustive]
@@ -54,6 +78,14 @@ pub struct ConnectRequestPayload {
 impl Encode for ConnectRequestPayload {
     fn encode(&self) -> Result<Vec<u8>, vex_v5_serial::encode::EncodeError> {
         self.allowed_types.encode()
+    }
+}
+impl Decode for ConnectRequestPayload {
+    fn decode(
+        data: impl IntoIterator<Item = u8>,
+    ) -> Result<Self, vex_v5_serial::decode::DecodeError> {
+        let allowed_types = ConnectionTypes::decode(data)?;
+        Ok(ConnectRequestPayload { allowed_types })
     }
 }
 
@@ -69,6 +101,16 @@ impl Encode for BluetoothPinPayload {
         Ok(self.pin_bytes.to_vec())
     }
 }
-
-pub type ConnectionTypePacket = Cdc2CommandPacket<V5D_CDC, CON_TYPE, ()>;
-pub type ConnectionTypeReplyPacket = Cdc2ReplyPacket<V5D_CDC, CON_TYPE, ConnectedType>;
+impl Decode for BluetoothPinPayload {
+    fn decode(
+        data: impl IntoIterator<Item = u8>,
+    ) -> Result<Self, vex_v5_serial::decode::DecodeError> {
+        let bytes = data.into_iter().take(4).collect::<Vec<_>>();
+        if bytes.len() != 4 {
+            return Err(DecodeError::PacketTooShort);
+        }
+        let mut pin_bytes = [0u8; 4];
+        pin_bytes.copy_from_slice(&bytes);
+        Ok(BluetoothPinPayload { pin_bytes })
+    }
+}
