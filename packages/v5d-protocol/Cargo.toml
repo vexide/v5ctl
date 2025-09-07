@@ -1,0 +1,12 @@
+[package]
+name = "v5d-protocol"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vex-v5-serial = { version = "0.3.3" }
+bitflags = "2.9.4"
+snafu = { version = "0.8.9", features = ["rust_1_81"] }
+tokio = { version = "1.47.1", features = ["net"] }
+interprocess = { version = "2.2.3", features = ["tokio"] }
+tracing = "0.1.41"

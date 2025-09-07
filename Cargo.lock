@@ -2351,6 +2351,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "v5d-protocol"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.9.4",
+ "interprocess",
+ "snafu",
+ "tokio",
+ "tracing",
+ "vex-v5-serial",
+]
+
+[[package]]
 name = "v_frame"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
