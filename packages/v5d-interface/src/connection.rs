@@ -287,7 +287,7 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
         let result: CompletionResponse = match command {
             DaemonCommand::MockTap { x, y } => interface.mock_tap(x, y).await,
             DaemonCommand::UploadProgram(opts) => {
-                interface
+                let res = interface
                     .upload_program(opts, |progress| {
                         block_in_place(|| {
                             Handle::current().block_on(async {
@@ -297,11 +297,16 @@ impl<I: DeviceInterface + Send> IncomingConnection<I> {
                             })
                         })
                     })
-                    .await?;
+                    .await
+                    .map_err(RemoteError::from);
 
+                self.reply(&TransferProgressResponse::Complete(res)).await?;
                 return Ok(());
             }
-            _ => todo!(),
+            DaemonCommand::PairingPin(pin) => interface.pairing_pin(pin).await,
+            DaemonCommand::Reconnect => interface.reconnect().await,
+            DaemonCommand::RequestPair => interface.request_pair().await,
+            DaemonCommand::Shutdown => interface.shutdown().await,
         }
         .map_err(RemoteError::from);
 
