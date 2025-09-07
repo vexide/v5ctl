@@ -12,5 +12,6 @@ serde_json = "1.0.118"
 simplelog = "0.12.2"
 snafu = { version = "0.8.9", features = ["rust_1_81"] }
 tokio = { version = "1.47.1", features = ["net", "macros", "io-util"] }
+tokio-util = "0.7.16"
 v5d-interface = { version = "0.1.0", path = "../v5d-interface" }
 vex-v5-serial = "0.3.3"

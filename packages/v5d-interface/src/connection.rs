@@ -70,11 +70,16 @@ impl DaemonConnection {
         })
     }
 
-    pub(crate) async fn send(&mut self, cmd: &DaemonCommand) -> Result<(), ConnectionError> {
+    pub(crate) async fn send(&mut self, cmd: &DaemonCommand, wait: bool) -> Result<(), ConnectionError> {
         let mut content =
             serde_json::to_vec(&cmd).context(SerializeSnafu { deserialize: false })?;
         content.push(b'\n');
         self.stream.writer.write_all(&content).await?;
+
+        if wait {
+            self.wait_for_ack().await?;
+        }
+
         Ok(())
     }
 
@@ -94,7 +99,7 @@ impl DaemonConnection {
 
 impl DeviceInterface for DaemonConnection {
     async fn mock_tap(&mut self, x: u16, y: u16) -> Result {
-        self.send(&DaemonCommand::MockTap { x, y }).await?;
+        self.send(&DaemonCommand::MockTap { x, y }, true).await?;
         Ok(())
     }
 
@@ -103,7 +108,7 @@ impl DeviceInterface for DaemonConnection {
         opts: UploadProgramOpts,
         mut handle_progress: impl FnMut(TransferProgress) + Send,
     ) -> Result {
-        self.send(&DaemonCommand::UploadProgram(opts)).await?;
+        self.send(&DaemonCommand::UploadProgram(opts), false).await?;
 
         loop {
             let msg = self.recv().await?;
@@ -120,26 +125,23 @@ impl DeviceInterface for DaemonConnection {
     }
 
     async fn shutdown(&mut self) -> Result {
-        self.send(&DaemonCommand::Shutdown).await?;
+        self.send(&DaemonCommand::Shutdown, true).await?;
         self.wait_for_ack().await?;
         Ok(())
     }
 
     async fn pairing_pin(&mut self, pin: [u8; 4]) -> Result {
-        self.send(&DaemonCommand::PairingPin(pin)).await?;
-        self.wait_for_ack().await?;
+        self.send(&DaemonCommand::PairingPin(pin), true).await?;
         Ok(())
     }
 
     async fn reconnect(&mut self) -> Result {
-        self.send(&DaemonCommand::Reconnect).await?;
-        self.wait_for_ack().await?;
+        self.send(&DaemonCommand::Reconnect, true).await?;
         Ok(())
     }
 
     async fn request_pair(&mut self) -> Result {
-        self.send(&DaemonCommand::RequestPair).await?;
-        self.wait_for_ack().await?;
+        self.send(&DaemonCommand::RequestPair, true).await?;
         Ok(())
     }
 }

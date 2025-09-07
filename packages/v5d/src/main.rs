@@ -6,8 +6,6 @@ use std::io;
 use clap::Parser;
 use daemon::Daemon;
 use log::info;
-use tokio::net::UnixListener;
-use v5d_interface::socket_path;
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum ConnectionType {
@@ -22,29 +20,6 @@ struct Args {
     connection_type: ConnectionType,
 }
 
-/// Creates a UNIX socket to communicate with the V5 Daemon
-pub fn setup_socket() -> io::Result<UnixListener> {
-    let path = socket_path();
-
-    let socket = UnixListener::bind(&path)?;
-
-    info!("UNIX socket created and bound to {:?}", path);
-    info!("Listening for incoming connections...");
-    Ok(socket)
-}
-
-pub fn shutdown() -> ! {
-    info!("Shutting down...");
-    // Clean up the socket file
-    let _ = std::fs::remove_file(socket_path());
-    info!("Shutdown complete!");
-    std::process::exit(0);
-}
-
-fn on_shutdown() {
-    shutdown();
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -55,9 +30,14 @@ async fn main() -> anyhow::Result<()> {
         simplelog::TerminalMode::Mixed,
         simplelog::ColorChoice::Auto,
     )?;
-    ctrlc::set_handler(on_shutdown)?;
 
     let daemon = Daemon::new(args.connection_type).await?;
+
+    let cancel_token = daemon.cancel_token();
+    ctrlc::set_handler(move || {
+        cancel_token.cancel();
+    })?;
+
     daemon.run().await;
 
     Ok(())

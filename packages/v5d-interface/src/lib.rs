@@ -63,9 +63,8 @@ impl From<AfterFileUpload> for FileExitAction {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub enum UploadStep {
     Ini,
-    Monolith,
-    Cold,
-    Hot,
+    Bin,
+    Lib,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

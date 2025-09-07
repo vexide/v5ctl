@@ -2352,6 +2352,7 @@ dependencies = [
  "simplelog",
  "snafu",
  "tokio",
+ "tokio-util",
  "v5d-interface",
  "vex-v5-serial",
 ]

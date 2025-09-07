@@ -8,6 +8,7 @@ use tokio::{
     spawn,
     sync::{Mutex, MutexGuard, mpsc::Sender},
 };
+use tokio_util::sync::CancellationToken;
 use v5d_interface::{
     DeviceInterface, TransferProgress, UploadProgramOpts, UploadStep, connection::DaemonListener,
 };
@@ -20,7 +21,7 @@ use vex_v5_serial::{
     },
 };
 
-use crate::{ConnectionType, connection::setup_connection, setup_socket};
+use crate::{ConnectionType, connection::setup_connection};
 
 #[derive(Debug, Snafu)]
 pub enum DaemonError {
@@ -40,22 +41,30 @@ pub enum DaemonError {
 }
 
 pub struct Daemon {
-    socket: UnixListener,
     brain_connection: Mutex<GenericConnection>,
     connection_type: ConnectionType,
+    cancel_token: CancellationToken,
 }
 impl Daemon {
     pub async fn new(connection_type: ConnectionType) -> Result<Self, DaemonError> {
         Ok(Self {
-            socket: setup_socket()?,
             brain_connection: Mutex::new(setup_connection(connection_type).await?),
             connection_type,
+            cancel_token: CancellationToken::new(),
         })
     }
 
+    pub fn cancel_token(&self) -> CancellationToken {
+        self.cancel_token.clone()
+    }
+
     pub async fn run(self) {
+        let token = self.cancel_token.clone();
         let mut listener = DaemonListener::new(self).expect("socket should be available");
-        listener.handle_connections().await;
+        tokio::select! {
+            _ = token.cancelled() => {}
+            _ = listener.handle_connections() => {}
+        }
     }
 
     fn get_bluetooth(&mut self) -> Result<&mut BluetoothConnection, DaemonError> {
@@ -108,12 +117,8 @@ impl DeviceInterface for Daemon {
             after_upload: opts.after_upload.into(),
             data: opts.data,
             ini_callback: Some(progress_callback_for(UploadStep::Ini, reporter.clone())),
-            monolith_callback: Some(progress_callback_for(
-                UploadStep::Monolith,
-                reporter.clone(),
-            )),
-            cold_callback: Some(progress_callback_for(UploadStep::Cold, reporter.clone())),
-            hot_callback: Some(progress_callback_for(UploadStep::Hot, reporter.clone())),
+            bin_callback: Some(progress_callback_for(UploadStep::Bin, reporter.clone())),
+            lib_callback: Some(progress_callback_for(UploadStep::Lib, reporter.clone())),
         };
 
         let conn = self.brain_connection.get_mut();
@@ -149,6 +154,7 @@ impl DeviceInterface for Daemon {
 
     async fn shutdown(&mut self) -> v5d_interface::Result {
         info!("Received shutdown command");
-        super::shutdown();
+        self.cancel_token.cancel();
+        Ok(())
     }
 }

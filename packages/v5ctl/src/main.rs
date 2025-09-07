@@ -4,6 +4,7 @@ use actions::upload::{AfterUpload, ProgramIcon};
 use clap::{Parser, Subcommand};
 use log::info;
 use tokio::io::BufReader;
+use v5d_interface::{connection::DaemonConnection, DeviceInterface};
 
 pub mod actions;
 
@@ -78,16 +79,13 @@ async fn main() -> anyhow::Result<()> {
         simplelog::ColorChoice::Auto,
     );
 
-    let mut sock = BufReader::new(
-        v5d_interface::connect_to_socket()
-            .await
-            .expect("Failed to connect to v5d! Is it running?"),
-    );
+    let mut conn = DaemonConnection::new()
+        .await
+        .expect("Failed to connect to v5d! Is it running?");
+
     match args.action {
         Action::MockTap { x, y } => {
-            send_command(&mut sock, DaemonCommand::MockTap { x, y }).await?;
-            let response = get_response(&mut sock).await?;
-            info!("Received response: {:?}", response);
+            conn.mock_tap(x, y).await?;
         }
         Action::UploadProgram {
             slot,
@@ -102,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
             after_upload,
         } => {
             actions::upload(
-                &mut sock,
+                &mut conn,
                 monolith,
                 hot,
                 cold,
@@ -117,13 +115,13 @@ async fn main() -> anyhow::Result<()> {
             .await?;
         }
         Action::StopDaemon => {
-            send_command(&mut sock, DaemonCommand::Shutdown).await?;
+            conn.shutdown().await?;
         }
         Action::Reconnect => {
-            send_command(&mut sock, DaemonCommand::Reconnect).await?;
+            conn.reconnect().await?;
         }
         Action::Pair => {
-            actions::pair(&mut sock).await?;
+            actions::pair(&mut conn).await?;
         }
     }
 

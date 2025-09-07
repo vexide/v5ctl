@@ -5,8 +5,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use log::{error, info};
 use tokio::{io::BufReader, net::UnixStream};
 use v5d_interface::{
-    get_response, send_command, AfterFileUpload, DaemonCommand, DaemonResponse, ProgramData,
-    UploadStep,
+    connection::DaemonConnection, AfterFileUpload, DeviceInterface, ProgramData, UploadProgramOpts, UploadStep
 };
 
 #[derive(ValueEnum, Debug, Clone, Copy, Default)]
@@ -63,7 +62,7 @@ pub enum ProgramIcon {
 const PROGRESS_CHARS: &str = "⣿⣦⣀";
 
 pub async fn upload(
-    socket: &mut BufReader<UnixStream>,
+    connection: &mut DaemonConnection,
     monolith: Option<PathBuf>,
     hot: Option<PathBuf>,
     cold: Option<PathBuf>,
@@ -164,7 +163,7 @@ pub async fn upload(
 
     let description = description.unwrap_or_else(|| "Uploaded with v5d".to_string());
     let program_type = program_type.unwrap_or_else(|| "Unknown".to_string());
-    let command = DaemonCommand::UploadProgram {
+    let opts = UploadProgramOpts {
         name: name.unwrap_or(fallback_name),
         description,
         icon: format!("USER{:03}x.bmp", icon as u16),
@@ -174,7 +173,6 @@ pub async fn upload(
         after_upload: after_upload.into(),
         data,
     };
-    send_command(socket, command).await?;
 
     let mut prev_step = UploadStep::Ini;
     let mut start = Instant::now();
@@ -190,66 +188,51 @@ pub async fn upload(
         hot_progress.tick();
     }
 
-    loop {
-        let response = get_response(socket).await?;
-
-        match response {
-            DaemonResponse::TransferProgress { percent, step } => {
-                if prev_step != step {
-                    start = Instant::now();
-                }
-
-                let elapsed = start.elapsed();
-                let elapsed_format = format!("{:.2?}", elapsed);
-                let position = (percent * 100.0) as u64;
-
-                match step {
-                    UploadStep::Ini => {
-                        ini_progress.set_position(position);
-                        ini_progress.set_prefix(elapsed_format);
-                    }
-                    UploadStep::Monolith => {
-                        if let Some(ref monolith_progress) = monolith_progress {
-                            monolith_progress.set_position(position);
-                            monolith_progress.set_prefix(elapsed_format);
-                        }
-                    }
-                    UploadStep::Cold => {
-                        if let Some(ref cold_progress) = cold_progress {
-                            cold_progress.set_position(position);
-                            cold_progress.set_prefix(elapsed_format);
-                        }
-                    }
-                    UploadStep::Hot => {
-                        if let Some(ref hot_progress) = hot_progress {
-                            hot_progress.set_position(position);
-                            hot_progress.set_prefix(elapsed_format);
-                        }
-                    }
-                }
-
-                prev_step = step;
-            }
-            DaemonResponse::TransferComplete(res) => {
-                ini_progress.finish();
-                if let Some(ref monolith_progress) = monolith_progress {
-                    monolith_progress.finish();
-                }
-                if let Some(ref cold_progress) = cold_progress {
-                    cold_progress.finish();
-                }
-                if let Some(ref hot_progress) = hot_progress {
-                    hot_progress.finish();
-                }
-                if let Err(err) = res {
-                    error!("Failed to upload program: {}", err);
-                } else {
-                    info!("Successfully uploaded program!");
-                }
-                break;
-            }
-            _ => panic!("Unexpected response from daemon"),
+    let res = connection.upload_program(opts, |progress| {
+        if prev_step != progress.step {
+            start = Instant::now();
         }
+
+        let elapsed = start.elapsed();
+        let elapsed_format = format!("{:.2?}", elapsed);
+        let position = (progress.percent * 100.0) as u64;
+
+        match progress.step {
+            UploadStep::Ini => {
+                ini_progress.set_position(position);
+                ini_progress.set_prefix(elapsed_format);
+            }
+            UploadStep::Lib => {
+                if let Some(ref cold_progress) = cold_progress {
+                    cold_progress.set_position(position);
+                    cold_progress.set_prefix(elapsed_format);
+                }
+            }
+            UploadStep::Bin => {
+                if let Some(ref hot_progress) = hot_progress {
+                    hot_progress.set_position(position);
+                    hot_progress.set_prefix(elapsed_format);
+                }
+            }
+        }
+
+        prev_step = progress.step;
+    }).await;
+
+    ini_progress.finish();
+    if let Some(ref monolith_progress) = monolith_progress {
+        monolith_progress.finish();
+    }
+    if let Some(ref cold_progress) = cold_progress {
+        cold_progress.finish();
+    }
+    if let Some(ref hot_progress) = hot_progress {
+        hot_progress.finish();
+    }
+    if let Err(err) = res {
+        error!("Failed to upload program: {}", err);
+    } else {
+        info!("Successfully uploaded program!");
     }
 
     Ok(())
