@@ -21,12 +21,9 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    simplelog::TermLogger::init(
-        log::LevelFilter::Debug,
-        Default::default(),
-        simplelog::TerminalMode::Mixed,
-        simplelog::ColorChoice::Auto,
-    )?;
+    tracing_subscriber::fmt()
+        .pretty()
+        .init();
 
     let daemon = Daemon::new(args.connection_type).await?;
 

@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Instant};
 
 use clap::ValueEnum;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use log::{error, info};
+use tracing::{error, info};
 use v5d_interface::{
     connection::DaemonConnection, AfterFileUpload, DeviceInterface, ProgramData, UploadProgramOpts,
     UploadStep,
@@ -64,8 +64,8 @@ const PROGRESS_CHARS: &str = "⣿⣦⣀";
 pub async fn upload(
     connection: &mut DaemonConnection,
     monolith: Option<PathBuf>,
-    hot: Option<PathBuf>,
-    cold: Option<PathBuf>,
+    bin: Option<PathBuf>,
+    lib: Option<PathBuf>,
     slot: u8,
     name: Option<String>,
     description: Option<String>,
@@ -85,7 +85,7 @@ pub async fn upload(
         )
         .with_message("INI");
 
-    let cold_progress = if cold.is_some() {
+    let lib_progress = if lib.is_some() {
         let bar = multi_progress
             .add(ProgressBar::new(10000))
             .with_style(
@@ -95,14 +95,14 @@ pub async fn upload(
                 .unwrap()
                 .progress_chars(PROGRESS_CHARS),
             )
-            .with_message("COLD");
+            .with_message("LIB");
 
         Some(bar)
     } else {
         None
     };
 
-    let hot_progress = if hot.is_some() {
+    let bin_progress = if bin.is_some() {
         let bar = multi_progress
             .add(ProgressBar::new(10000))
             .with_style(
@@ -110,7 +110,7 @@ pub async fn upload(
                     .unwrap()
                     .progress_chars(PROGRESS_CHARS),
             )
-            .with_message("HOT");
+            .with_message("BIN");
 
         Some(bar)
     } else {
@@ -132,7 +132,7 @@ pub async fn upload(
         None
     };
 
-    let (fallback_name, data) = match (monolith, cold, hot) {
+    let (fallback_name, data) = match (monolith, lib, bin) {
         (Some(monolith), None, None) => (
             monolith.file_stem().unwrap().to_string_lossy().to_string(),
             ProgramData::Monolith(std::fs::read(monolith)?),
@@ -181,10 +181,10 @@ pub async fn upload(
     if let Some(ref monolith_progress) = monolith_progress {
         monolith_progress.tick();
     }
-    if let Some(ref cold_progress) = cold_progress {
+    if let Some(ref cold_progress) = lib_progress {
         cold_progress.tick();
     }
-    if let Some(ref hot_progress) = hot_progress {
+    if let Some(ref hot_progress) = bin_progress {
         hot_progress.tick();
     }
 
@@ -204,15 +204,15 @@ pub async fn upload(
                     ini_progress.set_prefix(elapsed_format);
                 }
                 UploadStep::Lib => {
-                    if let Some(ref cold_progress) = cold_progress {
-                        cold_progress.set_position(position);
-                        cold_progress.set_prefix(elapsed_format);
+                    if let Some(ref lib_progress) = lib_progress {
+                        lib_progress.set_position(position);
+                        lib_progress.set_prefix(elapsed_format);
                     }
                 }
                 UploadStep::Bin => {
-                    if let Some(ref hot_progress) = hot_progress {
-                        hot_progress.set_position(position);
-                        hot_progress.set_prefix(elapsed_format);
+                    if let Some(ref bin_progress) = bin_progress {
+                        bin_progress.set_position(position);
+                        bin_progress.set_prefix(elapsed_format);
                     }
                 }
             }
@@ -225,10 +225,10 @@ pub async fn upload(
     if let Some(ref monolith_progress) = monolith_progress {
         monolith_progress.finish();
     }
-    if let Some(ref cold_progress) = cold_progress {
+    if let Some(ref cold_progress) = lib_progress {
         cold_progress.finish();
     }
-    if let Some(ref hot_progress) = hot_progress {
+    if let Some(ref hot_progress) = bin_progress {
         hot_progress.finish();
     }
     if let Err(err) = res {

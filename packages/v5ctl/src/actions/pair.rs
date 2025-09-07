@@ -1,11 +1,11 @@
-use log::{error, info};
+use tracing::{error, info};
 use rustyline::DefaultEditor;
 use v5d_interface::{connection::DaemonConnection, DeviceInterface};
 
 pub async fn pair(connection: &mut DaemonConnection) -> anyhow::Result<()> {
     let res = connection.request_pair().await;
     if let Err(err) = res {
-        error!("Failed to send pairing request");
+        error!(?err, "Failed to send pairing request");
         return Err(err);
     } else {
         info!("Pairing request sent successfully");

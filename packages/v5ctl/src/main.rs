@@ -70,12 +70,8 @@ enum Action {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
-    let _ = simplelog::TermLogger::init(
-        log::LevelFilter::Info,
-        Default::default(),
-        simplelog::TerminalMode::Mixed,
-        simplelog::ColorChoice::Auto,
-    );
+
+    tracing_subscriber::fmt().init();
 
     let mut conn = DaemonConnection::new()
         .await
