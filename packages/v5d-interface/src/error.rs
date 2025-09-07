@@ -16,9 +16,7 @@ pub enum ConnectionError {
     #[snafu(transparent)]
     Io { source: io::Error },
     #[snafu(whatever, display("{message}"))]
-    Custom {
-        message: String,
-    },
+    Custom { message: String },
 }
 
 #[derive(Debug, Snafu)]
@@ -45,6 +43,8 @@ impl From<Error> for RemoteError {
     fn from(value: Error) -> Self {
         let msg = format!("{value:?}");
 
-        RemoteError { message: msg.into() }
+        RemoteError {
+            message: msg.into(),
+        }
     }
 }

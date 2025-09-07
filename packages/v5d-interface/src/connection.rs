@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use snafu::{IntoError, ResultExt, Snafu};
 use tokio::{
     io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter},
-    net::UnixStream,
     runtime::Handle,
     sync::Mutex,
     task::block_in_place,
@@ -86,7 +85,11 @@ impl DaemonConnection {
         })
     }
 
-    pub(crate) async fn send(&mut self, cmd: &DaemonCommand, wait: bool) -> Result<(), ConnectionError> {
+    pub(crate) async fn send(
+        &mut self,
+        cmd: &DaemonCommand,
+        wait: bool,
+    ) -> Result<(), ConnectionError> {
         let mut content =
             serde_json::to_vec(&cmd).context(SerializeSnafu { deserialize: false })?;
         content.push(b'\n');
@@ -124,7 +127,8 @@ impl DeviceInterface for DaemonConnection {
         opts: UploadProgramOpts,
         mut handle_progress: impl FnMut(TransferProgress) + Send,
     ) -> Result {
-        self.send(&DaemonCommand::UploadProgram(opts), false).await?;
+        self.send(&DaemonCommand::UploadProgram(opts), false)
+            .await?;
 
         loop {
             let msg = self.recv().await?;

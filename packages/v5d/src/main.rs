@@ -1,11 +1,8 @@
 mod connection;
 mod daemon;
 
-use std::io;
-
 use clap::Parser;
 use daemon::Daemon;
-use log::info;
 
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
 enum ConnectionType {

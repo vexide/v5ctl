@@ -1,6 +1,5 @@
 use log::{error, info};
 use rustyline::DefaultEditor;
-use tokio::{io::BufReader, net::UnixStream};
 use v5d_interface::{connection::DaemonConnection, DeviceInterface};
 
 pub async fn pair(connection: &mut DaemonConnection) -> anyhow::Result<()> {

@@ -7,15 +7,9 @@
 //! delegating requests regarding devices to another process or accepting
 //! those requests using your own implementation of [`DeviceInterface`].
 
-use std::{future::Future, io, path::PathBuf, rc::Rc, sync::Arc};
+use std::future::Future;
 
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::UnixStream,
-};
-use tracing::{debug, info};
 use vex_v5_serial::packets::file::FileExitAction;
 
 pub use vex_v5_serial::commands::file::ProgramData;

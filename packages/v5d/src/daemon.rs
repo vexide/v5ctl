@@ -1,13 +1,8 @@
 use std::{io, sync::Arc};
 
-use log::{debug, error, info, trace};
+use log::info;
 use snafu::Snafu;
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    net::{UnixListener, UnixStream},
-    spawn,
-    sync::{Mutex, MutexGuard, mpsc::Sender},
-};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use v5d_interface::{
     DeviceInterface, TransferProgress, UploadProgramOpts, UploadStep, connection::DaemonListener,
@@ -27,8 +22,6 @@ use crate::{ConnectionType, connection::setup_connection};
 pub enum DaemonError {
     #[snafu(transparent)]
     Connection { source: GenericError },
-    #[snafu(display("Failed to serialize message"))]
-    Serde { source: serde_json::Error },
     #[snafu(transparent)]
     Io { source: io::Error },
     #[snafu(display(

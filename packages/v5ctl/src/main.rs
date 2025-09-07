@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use actions::upload::{AfterUpload, ProgramIcon};
 use clap::{Parser, Subcommand};
-use log::info;
-use tokio::io::BufReader;
 use v5d_interface::{connection::DaemonConnection, DeviceInterface};
 
 pub mod actions;

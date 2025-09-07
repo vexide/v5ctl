@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{error::RemoteError, TransferProgress, UploadProgramOpts};
+use crate::{TransferProgress, UploadProgramOpts, error::RemoteError};
 
 pub type CompletionResponse = Result<(), RemoteError>;
 
