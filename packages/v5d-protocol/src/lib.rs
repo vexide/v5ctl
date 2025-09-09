@@ -2,6 +2,7 @@
 
 pub mod packets;
 pub mod connection;
+pub mod commands;
 
 /// Custom CDC command identifiers for communication with v5d.
 pub(crate) mod cmds {

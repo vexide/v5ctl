@@ -1,16 +1,40 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use actions::upload::{AfterUpload, ProgramIcon};
 use clap::{Parser, Subcommand};
-use v5d_interface::{connection::DaemonConnection, DeviceInterface};
+use v5d_protocol::{
+    commands::sharing::StartConnection, connection::DaemonConnection,
+    packets::connection::ConnectionTypes,
+};
+use vex_v5_serial::{
+    commands::screen::{MockTap, MockTouch},
+    connection::Connection,
+};
 
 pub mod actions;
+
+fn validate_pin(s: &str) -> Result<[u8; 4], String> {
+    if s.len() != 4 {
+        return Err("Must be exactly 4 characters".to_string());
+    }
+
+    if !s.chars().all(|c| c.is_ascii_digit()) {
+        return Err("Must contain only numeric digits".to_string());
+    }
+
+    let mut pin_bytes = [0u8; 4];
+    let parsed = s.chars().map(|c| c as u8 - b'0').collect::<Vec<_>>();
+    pin_bytes.copy_from_slice(&parsed);
+    Ok(pin_bytes)
+}
 
 #[derive(Parser)]
 #[command(version, about = "A CLI for interacting with the V5 Daemon (v5d)")]
 struct Args {
     #[clap(subcommand)]
     action: Action,
+    #[arg(long, value_parser = validate_pin)]
+    bluetooth_pin: Option<[u8; 4]>,
 }
 
 #[derive(Subcommand)]
@@ -62,9 +86,6 @@ enum Action {
         #[arg(short, long, default_value = "show-screen")]
         after_upload: AfterUpload,
     },
-    Pair,
-    StopDaemon,
-    Reconnect,
 }
 
 #[tokio::main]
@@ -77,10 +98,14 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Failed to connect to v5d! Is it running?");
 
+    conn.execute_command(StartConnection {
+        lock_timeout: Some(500),
+        prefered_connection_types: ConnectionTypes::all(),
+        bluetooth_pin: args.bluetooth_pin,
+    });
+
     match args.action {
-        Action::MockTap { x, y } => {
-            conn.mock_tap(x, y).await?;
-        }
+        Action::MockTap { x, y } => conn.execute_command(MockTap { x, y }).await?,
         Action::UploadProgram {
             slot,
             icon,
@@ -107,15 +132,6 @@ async fn main() -> anyhow::Result<()> {
                 after_upload,
             )
             .await?;
-        }
-        Action::StopDaemon => {
-            conn.shutdown().await?;
-        }
-        Action::Reconnect => {
-            conn.reconnect().await?;
-        }
-        Action::Pair => {
-            actions::pair(&mut conn).await?;
         }
     }
 

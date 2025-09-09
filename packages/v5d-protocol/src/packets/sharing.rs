@@ -7,7 +7,7 @@ use vex_v5_serial::{
 use crate::{cmds::V5D_CDC, ecmds::CON_LOCK};
 
 pub type ConnectionLockPacket = Cdc2CommandPacket<V5D_CDC, CON_LOCK, LockAction>;
-pub type ConnectionLockReplyPacket = Cdc2ReplyPacket<V5D_CDC, CON_LOCK, ()>;
+pub type ConnectionLockReplyPacket = Cdc2ReplyPacket<V5D_CDC, CON_LOCK, LockResult>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum LockAction {

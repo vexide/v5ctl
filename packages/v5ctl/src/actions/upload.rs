@@ -3,10 +3,12 @@ use std::{path::PathBuf, time::Instant};
 use clap::ValueEnum;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use tracing::{error, info};
-use v5d_interface::{
-    connection::DaemonConnection, AfterFileUpload, DeviceInterface, ProgramData, UploadProgramOpts,
-    UploadStep,
-};
+use v5d_protocol::connection::DaemonConnection;
+use vex_v5_serial::commands::file::{UploadFile, UploadProgram};
+use vex_v5_serial::connection::Connection;
+use vex_v5_serial::packets::file::FileMetadata;
+use vex_v5_serial::string::FixedString;
+use vex_v5_serial::{commands::file::ProgramData, packets::file::FileExitAction};
 
 #[derive(ValueEnum, Debug, Clone, Copy, Default)]
 pub enum AfterUpload {
@@ -15,12 +17,12 @@ pub enum AfterUpload {
     Run,
     ShowScreen,
 }
-impl From<AfterUpload> for AfterFileUpload {
+impl From<AfterUpload> for FileExitAction {
     fn from(value: AfterUpload) -> Self {
         match value {
-            AfterUpload::None => AfterFileUpload::DoNothing,
-            AfterUpload::Run => AfterFileUpload::RunProgram,
-            AfterUpload::ShowScreen => AfterFileUpload::ShowRunScreen,
+            AfterUpload::None => FileExitAction::DoNothing,
+            AfterUpload::Run => FileExitAction::RunProgram,
+            AfterUpload::ShowScreen => FileExitAction::ShowRunScreen,
         }
     }
 }
@@ -163,18 +165,8 @@ pub async fn upload(
 
     let description = description.unwrap_or_else(|| "Uploaded with v5d".to_string());
     let program_type = program_type.unwrap_or_else(|| "Unknown".to_string());
-    let opts = UploadProgramOpts {
-        name: name.unwrap_or(fallback_name),
-        description,
-        icon: format!("USER{:03}x.bmp", icon as u16),
-        program_type,
-        slot,
-        compression: !uncompressed,
-        after_upload: after_upload.into(),
-        data,
-    };
 
-    let mut prev_step = UploadStep::Ini;
+    // let mut prev_step = UploadStep::Ini;
     let mut start = Instant::now();
 
     ini_progress.tick();
@@ -189,37 +181,55 @@ pub async fn upload(
     }
 
     let res = connection
-        .upload_program(opts, |progress| {
-            if prev_step != progress.step {
-                start = Instant::now();
-            }
-
-            let elapsed = start.elapsed();
-            let elapsed_format = format!("{:.2?}", elapsed);
-            let position = (progress.percent * 100.0) as u64;
-
-            match progress.step {
-                UploadStep::Ini => {
-                    ini_progress.set_position(position);
-                    ini_progress.set_prefix(elapsed_format);
-                }
-                UploadStep::Lib => {
-                    if let Some(ref lib_progress) = lib_progress {
-                        lib_progress.set_position(position);
-                        lib_progress.set_prefix(elapsed_format);
-                    }
-                }
-                UploadStep::Bin => {
-                    if let Some(ref bin_progress) = bin_progress {
-                        bin_progress.set_position(position);
-                        bin_progress.set_prefix(elapsed_format);
-                    }
-                }
-            }
-
-            prev_step = progress.step;
+        .execute_command(UploadProgram {
+            name: name.unwrap_or(fallback_name),
+            program_type,
+            description,
+            icon: format!("USER{:03}x.bmp", icon as u16),
+            slot: slot - 1,
+            compress_program: !uncompressed,
+            after_upload: after_upload.into(),
+            data,
+            // ini_callback: Some(progress_callback_for(UploadStep::Ini, reporter.clone())),
+            // bin_callback: Some(progress_callback_for(UploadStep::Bin, reporter.clone())),
+            // lib_callback: Some(progress_callback_for(UploadStep::Lib, reporter.clone())),
+            ini_callback: None,
+            bin_callback: None,
+            lib_callback: None,
         })
         .await;
+
+    // .upload_program(opts, |progress| {
+    //     if prev_step != progress.step {
+    //         start = Instant::now();
+    //     }
+
+    //     let elapsed = start.elapsed();
+    //     let elapsed_format = format!("{:.2?}", elapsed);
+    //     let position = (progress.percent * 100.0) as u64;
+
+    //     match progress.step {
+    //         UploadStep::Ini => {
+    //             ini_progress.set_position(position);
+    //             ini_progress.set_prefix(elapsed_format);
+    //         }
+    //         UploadStep::Lib => {
+    //             if let Some(ref lib_progress) = lib_progress {
+    //                 lib_progress.set_position(position);
+    //                 lib_progress.set_prefix(elapsed_format);
+    //             }
+    //         }
+    //         UploadStep::Bin => {
+    //             if let Some(ref bin_progress) = bin_progress {
+    //                 bin_progress.set_position(position);
+    //                 bin_progress.set_prefix(elapsed_format);
+    //             }
+    //         }
+    //     }
+
+    //     prev_step = progress.step;
+    // })
+    // .await;
 
     ini_progress.finish();
     if let Some(ref monolith_progress) = monolith_progress {

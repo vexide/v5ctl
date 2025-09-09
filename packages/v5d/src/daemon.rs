@@ -4,9 +4,6 @@ use log::info;
 use snafu::Snafu;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use v5d_interface::{
-    DeviceInterface, TransferProgress, UploadProgramOpts, UploadStep, connection::DaemonListener,
-};
 use vex_v5_serial::{
     commands::screen::MockTap,
     connection::{

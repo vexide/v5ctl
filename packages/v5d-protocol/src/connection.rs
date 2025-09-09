@@ -196,7 +196,8 @@ impl Connection for DaemonConnection {
     type Error = ConnectionError;
 
     fn connection_type(&self) -> vex_v5_serial::connection::ConnectionType {
-        todo!()
+        //TODO: this is wrong, but the closest we have
+        vex_v5_serial::connection::ConnectionType::Controller
     }
 
     async fn send_packet(

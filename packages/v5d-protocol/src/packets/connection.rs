@@ -13,7 +13,7 @@ pub type ConnectionTypePacket = Cdc2CommandPacket<V5D_CDC, CON_TYPE, ()>;
 pub type ConnectionTypeReplyPacket = Cdc2ReplyPacket<V5D_CDC, CON_TYPE, ConnectedType>;
 
 pub type ConnectRequestPacket = Cdc2CommandPacket<V5D_CDC, CONNECT_REQUEST, ConnectRequestPayload>;
-pub type ConnectionRequestReplyPacket = Cdc2ReplyPacket<V5D_CDC, CONNECT_REQUEST, ConnectedType>;
+pub type ConnectRequestReplyPacket = Cdc2ReplyPacket<V5D_CDC, CONNECT_REQUEST, ConnectedType>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
@@ -90,7 +90,7 @@ impl Decode for ConnectRequestPayload {
 }
 
 pub type BluetoothPinPacket = Cdc2CommandPacket<V5D_CDC, BLE_PIN, BluetoothPinPayload>;
-pub type BluetoothPinReplyPacket = Cdc2ReplyPacket<V5D_CDC, BLE_PIN, bool>;
+pub type BluetoothPinReplyPacket = Cdc2ReplyPacket<V5D_CDC, BLE_PIN, BluetoothPinResult>;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct BluetoothPinPayload {
@@ -112,5 +112,31 @@ impl Decode for BluetoothPinPayload {
         let mut pin_bytes = [0u8; 4];
         pin_bytes.copy_from_slice(&bytes);
         Ok(BluetoothPinPayload { pin_bytes })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[repr(u8)]
+pub enum BluetoothPinResult {
+    Success = 0,
+    IncorrectPin = 1,
+}
+impl Encode for BluetoothPinResult {
+    fn encode(&self) -> Result<Vec<u8>, vex_v5_serial::encode::EncodeError> {
+        Ok(vec![*self as u8])
+    }
+}
+impl Decode for BluetoothPinResult {
+    fn decode(data: impl IntoIterator<Item = u8>) -> Result<Self, DecodeError> {
+        let mut iter = data.into_iter();
+        let res = u8::decode(&mut iter)?;
+        match res {
+            0 => Ok(BluetoothPinResult::Success),
+            1 => Ok(BluetoothPinResult::IncorrectPin),
+            _ => Err(DecodeError::UnexpectedValue {
+                value: res,
+                expected: &[0, 1],
+            }),
+        }
     }
 }

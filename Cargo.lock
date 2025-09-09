@@ -2314,7 +2314,8 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "v5d-interface",
+ "v5d-protocol",
+ "vex-v5-serial",
 ]
 
 [[package]]
@@ -2330,7 +2331,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing-subscriber",
- "v5d-interface",
+ "v5d-protocol",
  "vex-v5-serial",
 ]
 
