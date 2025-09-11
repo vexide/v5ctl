@@ -1,9 +1,15 @@
-use std::{io, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    io::{self, ErrorKind},
+    sync::Arc,
+};
 
+use interprocess::local_socket::{ListenerOptions, traits::tokio::Listener};
 use log::info;
 use snafu::Snafu;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 use vex_v5_serial::{
     commands::screen::MockTap,
     connection::{
@@ -13,7 +19,10 @@ use vex_v5_serial::{
     },
 };
 
-use crate::{ConnectionType, connection::setup_connection};
+use crate::{
+    ConnectionType,
+    connection::{get_socket_name, setup_connections},
+};
 
 #[derive(Debug, Snafu)]
 pub enum DaemonError {
@@ -31,15 +40,11 @@ pub enum DaemonError {
 }
 
 pub struct Daemon {
-    brain_connection: Mutex<GenericConnection>,
-    connection_type: ConnectionType,
     cancel_token: CancellationToken,
 }
 impl Daemon {
-    pub async fn new(connection_type: ConnectionType) -> Result<Self, DaemonError> {
+    pub async fn new() -> Result<Self, DaemonError> {
         Ok(Self {
-            brain_connection: Mutex::new(setup_connection(connection_type).await?),
-            connection_type,
             cancel_token: CancellationToken::new(),
         })
     }
@@ -49,102 +54,86 @@ impl Daemon {
     }
 
     pub async fn run(self) {
+        let connections: Arc<Mutex<BTreeMap<u32, Mutex<GenericConnection>>>> = Default::default();
+
+        // Brain connection worker
+        tokio::spawn({
+            let connections = connections.clone();
+            async move {
+                let mut counter: u32 = 0;
+                loop {
+                    let new_connections = setup_connections().await;
+                    let num_connections = new_connections.len();
+
+                    if num_connections == 0 {
+                        error!("Error setting up connection to Brain. Retrying in 1s...");
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        continue;
+                    };
+
+                    let mut map = connections.lock().await;
+
+                    // add each connection to the connections map
+                    new_connections
+                        .into_iter()
+                        .map(Mutex::new)
+                        .enumerate()
+                        .for_each(|(i, con)| {
+                            map.insert(i as u32 + counter, con);
+                        });
+
+                    counter += num_connections as u32;
+                }
+            }
+        });
+
+        let listener = ListenerOptions::new()
+            .name(get_socket_name())
+            .create_tokio()
+            .expect("err creating socket");
+        // .map_err(|err| {
+        //     if err.kind() == ErrorKind::AddrInUse {
+        //         // ExistingServerSnafu.into_error(err)
+        //         todo!()
+        //     } else {
+        //         err.into()
+        //     }
+        // })?;
+
         let token = self.cancel_token.clone();
-        let mut listener = DaemonListener::new(self).expect("socket should be available");
+
+        let handle_new_connection =
+            move |res: std::io::Result<interprocess::local_socket::tokio::Stream>| {
+                let Ok(stream) = res else {
+                    error!("There was an error with an incoming connection");
+                    return;
+                };
+
+                // Handler for the new connection
+                tokio::spawn(async move {
+                    info!("New connection established");
+                });
+            };
+
         tokio::select! {
             _ = token.cancelled() => {}
-            _ = listener.handle_connections() => {}
-        }
-    }
-
-    fn get_bluetooth(&mut self) -> Result<&mut BluetoothConnection, DaemonError> {
-        let connection = self.brain_connection.get_mut();
-
-        if let GenericConnection::Bluetooth(connection) = connection {
-            Ok(connection)
-        } else {
-            WrongConnectionTypeSnafu {
-                actual: connection.connection_type(),
-                required: vex_v5_serial::connection::ConnectionType::Bluetooth,
+            res = listener.accept() => {
+                handle_new_connection(res);
             }
-            .fail()?
         }
     }
-}
 
-impl DeviceInterface for Daemon {
-    async fn mock_tap(&mut self, x: u16, y: u16) -> v5d_interface::Result {
-        let conn = self.brain_connection.get_mut();
-        conn.execute_command(MockTap { x, y }).await?;
-        Ok(())
-    }
+    // fn get_bluetooth(&mut self) -> Result<&mut BluetoothConnection, DaemonError> {
+    //     let connection = self.brain_connection.get_mut();
 
-    async fn upload_program(
-        &mut self,
-        opts: UploadProgramOpts,
-        handle_progress: impl FnMut(TransferProgress) + Send,
-    ) -> v5d_interface::Result {
-        let reporter = Arc::new(Mutex::new(handle_progress));
-
-        fn progress_callback_for<'a>(
-            step: UploadStep,
-            reporter: Arc<Mutex<impl FnMut(TransferProgress) + Send + 'a>>,
-        ) -> Box<dyn FnMut(f32) + Send + 'a> {
-            Box::new(move |percent| {
-                tokio::task::block_in_place(|| {
-                    reporter.blocking_lock()(TransferProgress { percent, step });
-                });
-            })
-        }
-
-        let command = vex_v5_serial::commands::file::UploadProgram {
-            name: opts.name,
-            program_type: opts.program_type,
-            description: opts.description,
-            icon: opts.icon,
-            slot: opts.slot - 1,
-            compress_program: opts.compression,
-            after_upload: opts.after_upload.into(),
-            data: opts.data,
-            ini_callback: Some(progress_callback_for(UploadStep::Ini, reporter.clone())),
-            bin_callback: Some(progress_callback_for(UploadStep::Bin, reporter.clone())),
-            lib_callback: Some(progress_callback_for(UploadStep::Lib, reporter.clone())),
-        };
-
-        let conn = self.brain_connection.get_mut();
-        conn.execute_command(command).await?;
-
-        Ok(())
-    }
-
-    async fn pairing_pin(&mut self, pin: [u8; 4]) -> v5d_interface::Result {
-        let connection = self.get_bluetooth()?;
-        connection
-            .authenticate_pairing(pin)
-            .await
-            .map_err(GenericError::from)?;
-        Ok(())
-    }
-
-    async fn reconnect(&mut self) -> v5d_interface::Result {
-        let connection = self.brain_connection.get_mut();
-        *connection = setup_connection(self.connection_type).await?;
-
-        Ok(())
-    }
-
-    async fn request_pair(&mut self) -> v5d_interface::Result {
-        let connection = self.get_bluetooth()?;
-        connection
-            .request_pairing()
-            .await
-            .map_err(GenericError::from)?;
-        Ok(())
-    }
-
-    async fn shutdown(&mut self) -> v5d_interface::Result {
-        info!("Received shutdown command");
-        self.cancel_token.cancel();
-        Ok(())
-    }
+    //     if let GenericConnection::Bluetooth(connection) = connection {
+    //         Ok(connection)
+    //     } else {
+    //         WrongConnectionTypeSnafu {
+    //             actual: connection.connection_type(),
+    //             required: vex_v5_serial::connection::ConnectionType::Bluetooth,
+    //         }
+    //         .fail()?
+    //     }
+    // }
 }

@@ -25,27 +25,6 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace};
 
-use self::format::{DaemonCommand, TransferProgressResponse};
-use crate::{
-    DeviceInterface, TransferProgress, UploadProgramOpts,
-    connection::format::CompletionResponse,
-    error::{RemoteError, Result, SerializeError, SerializeSnafu},
-};
-
-mod format;
-
-#[derive(Debug, Snafu)]
-pub enum ConnectionError {
-    #[snafu(transparent)]
-    SerializeMsg { source: SerializeError },
-    #[snafu(transparent)]
-    Remote { source: RemoteError },
-    #[snafu(transparent)]
-    Io { source: io::Error },
-    #[snafu(display("Cannot listen for connections because another v5d server is running"))]
-    ExistingServer { source: io::Error },
-}
-
 fn get_socket_name() -> Name<'static> {
     "vexide-v5d.sock"
         .to_ns_name::<GenericNamespaced>()
@@ -67,116 +46,16 @@ impl BufStream {
     }
 }
 
-/// A connection to a remote VEX device connection implementation.
-///
-/// This struct implements [`DeviceInterface`] by asking another
-/// process to do the work for it.
-pub struct DaemonConnection {
-    stream: BufStream,
-}
-
-impl DaemonConnection {
-    /// Connect to a running process exposing its device
-    pub async fn new() -> Result<Self, ConnectionError> {
-        let stream = Stream::connect(get_socket_name()).await?;
-
-        Ok(Self {
-            stream: BufStream::new(stream),
-        })
-    }
-
-    pub(crate) async fn send(
-        &mut self,
-        cmd: &DaemonCommand,
-        wait: bool,
-    ) -> Result<(), ConnectionError> {
-        let mut content =
-            serde_json::to_vec(&cmd).context(SerializeSnafu { deserialize: false })?;
-        content.push(b'\n');
-        self.stream.writer.write_all(&content).await?;
-
-        if wait {
-            self.wait_for_ack().await?;
-        }
-
-        Ok(())
-    }
-
-    pub(crate) async fn recv<T: for<'a> Deserialize<'a>>(&mut self) -> Result<T, ConnectionError> {
-        let mut response = String::new();
-        self.stream.reader.read_line(&mut response).await?;
-        let responses =
-            serde_json::from_str(&response).context(SerializeSnafu { deserialize: true })?;
-        Ok(responses)
-    }
-
-    pub(crate) async fn wait_for_ack(&mut self) -> Result<(), ConnectionError> {
-        self.recv::<CompletionResponse>().await??;
-        Ok(())
-    }
-}
-
-impl DeviceInterface for DaemonConnection {
-    async fn mock_tap(&mut self, x: u16, y: u16) -> Result {
-        self.send(&DaemonCommand::MockTap { x, y }, true).await?;
-        Ok(())
-    }
-
-    async fn upload_program(
-        &mut self,
-        opts: UploadProgramOpts,
-        mut handle_progress: impl FnMut(TransferProgress) + Send,
-    ) -> Result {
-        self.send(&DaemonCommand::UploadProgram(opts), false)
-            .await?;
-
-        loop {
-            let msg = self.recv().await?;
-
-            match msg {
-                TransferProgressResponse::Progress(progress) => {
-                    handle_progress(progress);
-                }
-                TransferProgressResponse::Complete(response) => {
-                    return Ok(response?);
-                }
-            }
-        }
-    }
-
-    async fn shutdown(&mut self) -> Result {
-        self.send(&DaemonCommand::Shutdown, true).await?;
-        self.wait_for_ack().await?;
-        Ok(())
-    }
-
-    async fn pairing_pin(&mut self, pin: [u8; 4]) -> Result {
-        self.send(&DaemonCommand::PairingPin(pin), true).await?;
-        Ok(())
-    }
-
-    async fn reconnect(&mut self) -> Result {
-        self.send(&DaemonCommand::Reconnect, true).await?;
-        Ok(())
-    }
-
-    async fn request_pair(&mut self) -> Result {
-        self.send(&DaemonCommand::RequestPair, true).await?;
-        Ok(())
-    }
-}
-
 /// A server that listens for device communication requests.
 ///
 /// This struct allows you to expose your own [`DeviceInterface`]
 /// implementation so that other processes can access it using
 /// a [`DaemonConnection`] struct.
-pub struct DaemonListener<I: DeviceInterface + Send + 'static> {
-    interface: Arc<Mutex<I>>,
+pub struct DaemonListener {
     listener: Listener,
 }
 
-impl<I: DeviceInterface + Send + 'static> DaemonListener<I> {
+impl DaemonListener<I> {
     /// Register this process as the current device daemon.
     ///
     /// Next, call [`Self::handle_connections`] to begin handling

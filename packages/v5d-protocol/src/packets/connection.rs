@@ -20,6 +20,7 @@ pub type ConnectRequestReplyPacket = Cdc2ReplyPacket<V5D_CDC, CONNECT_REQUEST, C
 pub enum ConnectedType {
     Serial = 0,
     Bluetooth = 1,
+    BluetoothNeedsPin = 2,
     NoConnection = 255,
 }
 impl Decode for ConnectedType {

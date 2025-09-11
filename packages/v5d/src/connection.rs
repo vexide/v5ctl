@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use interprocess::local_socket::{GenericNamespaced, Name, ToNsName};
 use log::{info, warn};
-use tokio::{select, time::sleep};
+use tokio::join;
 use vex_v5_serial::connection::{
     bluetooth,
     generic::{GenericConnection, GenericError},
@@ -24,38 +25,39 @@ async fn bluetooth_connection() -> Result<GenericConnection, DaemonError> {
     Ok(connection.into())
 }
 
-async fn serial_connection() -> Result<GenericConnection, DaemonError> {
-    loop {
-        // Find all connected serial devices
-        let mut devices = serial::find_devices()
-            .map_err(Into::<GenericError>::into)?
-            .into_iter();
-        // Open a connection to the first device
-        let Some(device) = devices.next() else {
-            warn!("No serial devices found. Retrying in 1s...");
-            sleep(Duration::from_millis(1000)).await;
-            continue;
-        };
-        let connection = device
-            .connect(Duration::from_secs(2))
-            .map_err(Into::<GenericError>::into)?;
-        info!("Connected to the Brain over serial!");
-        return Ok(connection.into());
-    }
+async fn serial_connection() -> Result<Vec<GenericConnection>, DaemonError> {
+    // Find all connected serial devices
+    Ok(serial::find_devices()
+        .map_err(Into::<GenericError>::into)?
+        .into_iter()
+        .filter_map(|d| d.connect(Duration::from_secs(1)).map(|c| c.into()).ok())
+        .collect())
 }
 
-pub async fn setup_connection(
-    connection_type: super::ConnectionType,
-) -> Result<GenericConnection, DaemonError> {
-    match connection_type {
-        super::ConnectionType::Bluetooth => bluetooth_connection().await,
-        super::ConnectionType::Serial => serial_connection().await,
-        super::ConnectionType::Auto => {
-            // Race the two connection methods
-            select! {
-                con = bluetooth_connection() => con,
-                con = serial_connection() => con,
-            }
-        }
+pub async fn setup_connections() -> Vec<GenericConnection> {
+    // Join the two connection methods
+    let (bluetooth, serial) = join! {
+        bluetooth_connection(),
+        serial_connection(),
+    };
+
+    let mut connections = vec![];
+    if let Ok(b) = bluetooth {
+        connections.push(b);
+    } else {
+        warn!("No Bluetooth connection to the Brain could be established.");
     }
+    if let Ok(s) = serial {
+        connections.extend(s);
+    } else {
+        warn!("No Serial connections to the Brain could be established.");
+    }
+
+    connections
+}
+
+pub fn get_socket_name() -> Name<'static> {
+    "vexide-v5d.sock"
+        .to_ns_name::<GenericNamespaced>()
+        .expect("socket name should be valid")
 }

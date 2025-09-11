@@ -19,13 +19,13 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    // let args = Args::parse();
 
     tracing_subscriber::fmt()
         .pretty()
         .init();
 
-    let daemon = Daemon::new(args.connection_type).await?;
+    let daemon = Daemon::new().await?;
 
     let cancel_token = daemon.cancel_token();
     ctrlc::set_handler(move || {
